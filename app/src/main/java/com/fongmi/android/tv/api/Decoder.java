@@ -31,6 +31,10 @@ public class Decoder {
         }
     }
 
+    public static String fixJson(String url, String data) {
+        return fix(url, data);
+    }
+
     private static String verify(String url, String data) throws Exception {
         if (data.isEmpty()) throw new Exception();
         if (Json.isObj(data)) return fix(url, data);
