@@ -198,7 +198,7 @@ public class Config {
 
     public static Config vod() {
         Config item = AppDatabase.get().getConfigDao().findOne(0);
-        return item == null ? create(0, "assets://config/0821.json") : item;
+        return item == null ? create(0, "https://raw.githubusercontent.com/qist/tvbox/refs/heads/master/0821.json") : item;
     }
 
     public static Config live() {
