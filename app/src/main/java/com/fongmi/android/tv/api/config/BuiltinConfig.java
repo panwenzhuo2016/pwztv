@@ -128,7 +128,7 @@ public class BuiltinConfig {
   "sites": [
     {
       "key": "豆",
-      "name": "【神秘的哥哥们】",
+      "name": "【首页】",
       "type": 3,
       "api": "csp_DouDouGuard",
       "indexs": 1,
