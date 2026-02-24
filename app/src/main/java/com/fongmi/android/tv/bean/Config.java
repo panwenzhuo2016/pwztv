@@ -8,6 +8,7 @@ import androidx.room.Entity;
 import androidx.room.Index;
 import androidx.room.PrimaryKey;
 
+import com.fongmi.android.tv.api.config.BuiltinConfig;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.db.AppDatabase;
 import com.github.catvod.utils.Prefers;
@@ -198,7 +199,7 @@ public class Config {
 
     public static Config vod() {
         Config item = AppDatabase.get().getConfigDao().findOne(0);
-        return item == null ? create(0, "https://raw.githubusercontent.com/qist/tvbox/refs/heads/master/0821.json") : item;
+        return item == null ? create(0, BuiltinConfig.URL) : item;
     }
 
     public static Config live() {

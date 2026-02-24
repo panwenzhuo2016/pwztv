@@ -1,3 +1,9 @@
+package com.fongmi.android.tv.api.config;
+
+public class BuiltinConfig {
+    public static final String URL = "builtin";
+    public static final String BASE = "https://raw.githubusercontent.com/qist/tvbox/refs/heads/master/";
+    public static final String VOD_JSON = """
 {
   "spider": "./jar/fan.txt;md5;8432d174d72d5b608ae1bcd16d966847",
   "logo": "https://avatars.githubusercontent.com/u/58679624?v=4",
@@ -122,7 +128,7 @@
   "sites": [
     {
       "key": "豆",
-      "name": "【潘】",
+      "name": "【神秘的哥哥们】",
       "type": 3,
       "api": "csp_DouDouGuard",
       "indexs": 1,
@@ -1439,7 +1445,7 @@
         "5",
         "20.123",
         "20.167",
-        "#EXT-X-DISCONTINUITY\\r*\\n*((?!#EXT-X-DISCONTINUITY)[\\s\\S])*?#EXT-X-KEY:METHOD((?!#EXT-X-DISCONTINUITY)[\\s\\S])*?#EXT-X-DISCONTINUITY"
+        "#EXT-X-DISCONTINUITY\\\\r*\\\\n*((?!#EXT-X-DISCONTINUITY)[\\\\s\\\\S])*?#EXT-X-KEY:METHOD((?!#EXT-X-DISCONTINUITY)[\\\\s\\\\S])*?#EXT-X-DISCONTINUITY"
       ]
     },
     {
@@ -1450,7 +1456,7 @@
       "regex": [
         "18.4",
         "15.1666",
-        "#EXT-X-DISCONTINUITY\\r*\\n*((?!#EXT-X-DISCONTINUITY)[\\s\\S])*?#EXT-X-CUE-OUT((?!#EXT-X-DISCONTINUITY)[\\s\\S])*?#EXT-X-CUE-IN"
+        "#EXT-X-DISCONTINUITY\\\\r*\\\\n*((?!#EXT-X-DISCONTINUITY)[\\\\s\\\\S])*?#EXT-X-CUE-OUT((?!#EXT-X-DISCONTINUITY)[\\\\s\\\\S])*?#EXT-X-CUE-IN"
       ]
     },
     {
@@ -1459,7 +1465,7 @@
         "suonizy"
       ],
       "regex": [
-        "#EXTINF.*?\\s+.*?original.*?\\.ts\\s+",
+        "#EXTINF.*?\\\\s+.*?original.*?\\\\.ts\\\\s+",
         "15.1666",
         "15.2666",
         "16.3333",
@@ -1472,7 +1478,7 @@
         "bfzy"
       ],
       "regex": [
-        "#EXT-X-DISCONTINUITY\\r*\\n*#EXTINF:3,[\\s\\S]*?#EXT-X-DISCONTINUITY"
+        "#EXT-X-DISCONTINUITY\\\\r*\\\\n*#EXTINF:3,[\\\\s\\\\S]*?#EXT-X-DISCONTINUITY"
       ]
     },
     {
@@ -1481,7 +1487,7 @@
         "aws.ulivetv.net"
       ],
       "regex": [
-        "#EXT-X-DISCONTINUITY\\r*\\n*#EXTINF:8,[\\s\\S]*?#EXT-X-DISCONTINUITY"
+        "#EXT-X-DISCONTINUITY\\\\r*\\\\n*#EXTINF:8,[\\\\s\\\\S]*?#EXT-X-DISCONTINUITY"
       ]
     },
     {
@@ -1552,4 +1558,6 @@
       ]
     }
   ]
+}
+""";
 }

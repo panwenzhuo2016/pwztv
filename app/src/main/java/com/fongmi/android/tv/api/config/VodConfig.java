@@ -117,7 +117,9 @@ public class VodConfig {
             Server.get().start();
             String url = config.getUrl();
             String json;
-            if (url != null && url.startsWith("assets://")) {
+            if (BuiltinConfig.URL.equals(url)) {
+                json = Decoder.fixJson(BuiltinConfig.BASE + "0821.json", BuiltinConfig.VOD_JSON);
+            } else if (url != null && url.startsWith("assets://")) {
                 String raw = Asset.read(url.replace("assets://", ""));
                 if (raw.isEmpty()) throw new Exception("assets file not found");
                 json = Decoder.fixJson(UrlUtil.convert(url), raw);

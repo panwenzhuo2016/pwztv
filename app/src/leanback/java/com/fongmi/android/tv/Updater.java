@@ -59,8 +59,7 @@ public class Updater implements Download.Callback {
     }
 
     public void start(Activity activity) {
-        if (!Setting.getUpdate()) return;
-        App.execute(() -> doInBackground(activity));
+        // 禁用新版本弹窗
     }
 
     private void doInBackground(Activity activity) {
