@@ -2,6 +2,7 @@ package com.fongmi.android.tv.api;
 
 import androidx.media3.common.MimeTypes;
 
+import com.fongmi.android.tv.api.config.BuiltinConfig;
 import com.fongmi.android.tv.bean.Catchup;
 import com.fongmi.android.tv.bean.Channel;
 import com.fongmi.android.tv.bean.ClearKey;
@@ -54,7 +55,10 @@ public class LiveParser {
 
     private static String getText(Live live) throws Exception {
         if (!live.getApi().isEmpty()) return live.spider().liveContent(live.getUrl());
-        return OkHttp.string(UrlUtil.convert(live.getUrl()), live.getHeaders());
+        String url = live.getUrl();
+        String builtin = BuiltinConfig.getBuiltinM3u(url);
+        if (!builtin.isEmpty()) return builtin;
+        return OkHttp.string(UrlUtil.convert(url), live.getHeaders());
     }
 
     public static void text(Live live, String text) {
