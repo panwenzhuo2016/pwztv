@@ -334,6 +334,42 @@
       "timeout": 8
     },
     {
+      "key": "hd1080",
+      "name": "1080资源库┃采集",
+      "type": 1,
+      "api": "https://api.1080zyku.com/inc/api_mac10.php",
+      "searchable": 1,
+      "changeable": 1,
+      "timeout": 8
+    },
+    {
+      "key": "ckzy",
+      "name": "CK资源┃采集",
+      "type": 1,
+      "api": "https://ckzy.me/api.php/provide/vod",
+      "searchable": 1,
+      "changeable": 1,
+      "timeout": 8
+    },
+    {
+      "key": "yinghua",
+      "name": "樱花资源┃采集",
+      "type": 1,
+      "api": "https://yhzy.cc/api.php/provide/vod",
+      "searchable": 1,
+      "changeable": 1,
+      "timeout": 8
+    },
+    {
+      "key": "lovedan",
+      "name": "艾旦影视┃采集",
+      "type": 1,
+      "api": "https://lovedan.net/api.php/provide/vod",
+      "searchable": 1,
+      "changeable": 1,
+      "timeout": 8
+    },
+    {
       "key": "豆",
       "name": "【首页】",
       "type": 3,
