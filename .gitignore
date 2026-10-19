@@ -4,7 +4,6 @@
 lib-*.aar
 *build
 /media*
-/Release
 /local.properties
 /.signing/
 /.android-sdk/
