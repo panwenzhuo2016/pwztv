@@ -1,5 +1,24 @@
 # 影視
 
+### Windows 一键打包
+
+双击根目录 `build_all.bat`，或在终端运行它。需要 JDK 17 或更新版本、Python 3.10、Android SDK Platform 36.1 和 Build-Tools 35.0.0。通过 `ANDROID_HOME` 环境变量或 `local.properties` 中的 `sdk.dir` 指定 SDK；也支持项目根目录的 `.android-sdk`。首次构建需联网下载 Gradle、依赖及 Python 包。
+
+脚本构建启用代码与资源裁剪的 Release 版本，逐个签名并校验成功后，集中输出到根目录 `Release`：
+
+| 安装包 | 设备 |
+| --- | --- |
+| `mobile-arm64_v8a.apk` | 64 位 ARM 安卓手机、平板 |
+| `mobile-armeabi_v7a.apk` | 32 位 ARM 安卓手机、平板 |
+| `leanback-arm64_v8a.apk` | 64 位 ARM 安卓电视、盒子、投影 |
+| `leanback-armeabi_v7a.apk` | 32 位 ARM 安卓电视、盒子、投影 |
+
+按设备的安卓系统架构选择安装包。极米需支持安装第三方安卓应用；iPhone、iPad 不支持这些 APK。
+
+首次运行自动创建本地签名，之后复用。**请备份整个 `.signing` 目录，其中包含密钥和密码，勿上传或分享。** 更换签名后无法覆盖安装旧版本；原有安装包若使用其他签名，也需先卸载再安装，卸载会清除应用数据。密钥或密码缺失时脚本会停止，避免无意更换签名。
+
+构建失败会返回非零退出码；`Release` 中可能保留上次成功的产物，以本次终端的 `SUCCESS` 为准。
+
 ### 基於 CatVod 項目
 
 https://github.com/CatVodTVOfficial/CatVodTVJarLoader

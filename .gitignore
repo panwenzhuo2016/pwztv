@@ -6,3 +6,6 @@ lib-*.aar
 /media*
 /Release
 /local.properties
+/.signing/
+/.android-sdk/
+/scripts/__pycache__/
