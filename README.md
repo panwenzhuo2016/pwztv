@@ -25,7 +25,7 @@
 
 默认直播入口聚合国内、国际清单，同台节目合并备用线路，保留每条线路的请求头。国内按央视、卫视、地方和港澳台分组，国际按新闻、影视、体育、纪录及其他分类，频道名保留地区区别。排除 RTP 组播和明显内网地址，IPv6 来源作为后备；播放能力仍取决于设备网络和来源限制。
 
-内置来源目录位于 `app/src/main/assets/sources.json`，随包快照位于 `sources/`。来源包括 [iptv-org](https://github.com/iptv-org/iptv)、[Free-TV](https://github.com/Free-TV/IPTV)、[Guovin](https://github.com/Guovin/iptv-api)、[fanmingming](https://github.com/fanmingming/live) 和 [qist](https://github.com/qist/tvbox)。点播保留原有站点，按站点编号去重由 84 个增至 100 个，净增加 16 个接口；其中量子、非凡新增 JSON 接口，另含无尽、魔都、最大、如意、红牛、新浪、极速、光速、速播、豆瓣、金鹰、豪华、360、闪电。直接采集接口共 19 个，均参与原有点播和搜索流程。公开清单不等于全部节目可播，也不代表已收齐全网来源。
+内置来源目录位于 `app/src/main/assets/sources.json`，随包快照位于 `sources/`。来源包括 [iptv-org](https://github.com/iptv-org/iptv)、[Free-TV](https://github.com/Free-TV/IPTV)、[Guovin](https://github.com/Guovin/iptv-api)、[fanmingming](https://github.com/fanmingming/live) 和 [qist](https://github.com/qist/tvbox)。点播保留原有站点，按站点编号去重由 84 个增至 103 个，净增加 19 个接口；其中量子、非凡新增 JSON 接口，另含无尽、魔都、最大、如意、红牛、新浪、极速、光速、速播、豆瓣、金鹰、豪华、360、闪电、iKun、电影天堂、U酷。直接采集接口共 22 个，均参与原有点播和搜索流程。公开清单不等于全部节目可播，也不代表已收齐全网来源。
 
 默认每 6 小时在加载时安排后台更新；下载超时、返回网页或格式错误均保留最后有效缓存，首次使用内置快照。更新不打断正在播放的节目，重新打开或刷新直播清单后使用新缓存。策略可在 `sources.json` 调整：单次下载最多 8MB、失败冷却 5 分钟、同台最多 24 条线路、每轮点播最多 20 个候选。
 

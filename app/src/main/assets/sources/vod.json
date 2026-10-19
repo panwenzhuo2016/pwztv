@@ -307,6 +307,33 @@
       "timeout": 8
     },
     {
+      "key": "ikun",
+      "name": "iKun┃采集",
+      "type": 1,
+      "api": "https://ikunzyapi.com/api.php/provide/vod/",
+      "searchable": 1,
+      "changeable": 1,
+      "timeout": 8
+    },
+    {
+      "key": "dytt",
+      "name": "电影天堂┃采集",
+      "type": 1,
+      "api": "https://caiji.dyttzyapi.com/api.php/provide/vod/",
+      "searchable": 1,
+      "changeable": 1,
+      "timeout": 8
+    },
+    {
+      "key": "uku",
+      "name": "U酷┃采集",
+      "type": 1,
+      "api": "https://api.ukuapi88.com/api.php/provide/vod/",
+      "searchable": 1,
+      "changeable": 1,
+      "timeout": 8
+    },
+    {
       "key": "豆",
       "name": "【首页】",
       "type": 3,
