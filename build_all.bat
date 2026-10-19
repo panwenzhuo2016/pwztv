@@ -2,6 +2,10 @@
 setlocal
 pushd "%~dp0"
 if errorlevel 1 exit /b 1
+set "BUILD_PAUSE=1"
+for %%A in (%*) do if /i "%%~A"=="--no-pause" set "BUILD_PAUSE=0"
+for %%A in (%*) do if /i "%%~A"=="--help" set "BUILD_PAUSE=0"
+for %%A in (%*) do if /i "%%~A"=="-h" set "BUILD_PAUSE=0"
 
 rem Find Python 3.10 for the Android Python runtime.
 py -3.10 --version >nul 2>&1
@@ -13,18 +17,18 @@ set "BUILD_EXIT=1"
 goto finish
 
 :use_launcher
-rem Build and verify all four release APKs.
-py -3.10 "%~dp0scripts\build_all.py"
+rem Build selected release APKs; forward architecture and pause options.
+py -3.10 "%~dp0scripts\build_all.py" %*
 set "BUILD_EXIT=%errorlevel%"
 goto finish
 
 :use_python
-rem Build and verify all four release APKs.
-python "%~dp0scripts\build_all.py"
+rem Build selected release APKs; forward architecture and pause options.
+python "%~dp0scripts\build_all.py" %*
 set "BUILD_EXIT=%errorlevel%"
 
 :finish
 if not "%BUILD_EXIT%"=="0" echo Build failed. Read the error above.
 popd
-if /i not "%~1"=="--no-pause" pause
+if "%BUILD_PAUSE%"=="1" pause
 exit /b %BUILD_EXIT%
