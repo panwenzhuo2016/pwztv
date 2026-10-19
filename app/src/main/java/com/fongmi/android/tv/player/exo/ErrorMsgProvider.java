@@ -1,10 +1,16 @@
 package com.fongmi.android.tv.player.exo;
 
 import androidx.media3.common.PlaybackException;
+import androidx.media3.datasource.HttpDataSource;
 
 public class ErrorMsgProvider {
 
+    // 展示实际HTTP状态码便于定位失效来源。
     public String get(PlaybackException e) {
+        Throwable cause = e;
+        for (int depth = 0; cause != null && depth < 16; depth++, cause = cause.getCause()) {
+            if (cause instanceof HttpDataSource.InvalidResponseCodeException response) return "HTTP " + response.responseCode;
+        }
         return switch (e.errorCode) {
             case PlaybackException.ERROR_CODE_TIMEOUT -> "Timeout";
             case PlaybackException.ERROR_CODE_UNSPECIFIED -> "Unspecified";

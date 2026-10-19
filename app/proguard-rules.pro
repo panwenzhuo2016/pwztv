@@ -82,3 +82,6 @@
 
 # Zxing
 -keep class com.google.zxing.** { *; }
+# Subscription manifest fields are read by Gson.
+-keep class com.fongmi.android.tv.api.source.SourceManifest { *; }
+-keep class com.fongmi.android.tv.api.source.SourceManifest$Entry { *; }

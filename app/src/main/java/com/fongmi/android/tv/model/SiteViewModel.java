@@ -46,6 +46,7 @@ public class SiteViewModel extends ViewModel {
     private final ExecutorService executor;
     private final AtomicInteger taskId;
     private Future<Result> future;
+    private final AtomicInteger searchGeneration = new AtomicInteger();
 
     public final MutableLiveData<Result> result;
     public final MutableLiveData<Result> player;
@@ -211,9 +212,20 @@ public class SiteViewModel extends ViewModel {
         });
     }
 
+    // 启动新一轮搜索并隔离旧请求结果。
     public void searchContent(List<Site> sites, String keyword, boolean quick) {
+        // 取消旧搜索并使其迟到结果失效。
         stopSearch();
-        sites.forEach(site -> searchFuture.add(App.submitSearch(SearchTask.create(this, site, keyword, quick).run())));
+        int generation = searchGeneration.get();
+        // 后台搜索并仅发布本轮有效结果。
+        sites.forEach(site -> searchFuture.add(App.submitSearch(SearchTask.create(this, site, keyword, quick).run(generation))));
+    }
+
+    // 仅在当前搜索轮次发布异步返回结果。
+    public void publishSearch(int generation, Result result) {
+        App.post(() -> {
+            if (generation == searchGeneration.get()) search.setValue(result);
+        });
     }
 
     public void searchContent(Site site, String keyword, boolean quick, String page) {
@@ -280,7 +292,9 @@ public class SiteViewModel extends ViewModel {
         });
     }
 
+    // 取消旧搜索并使其迟到结果失效。
     public void stopSearch() {
+        searchGeneration.incrementAndGet();
         searchFuture.forEach(future -> future.cancel(true));
         searchFuture.clear();
     }

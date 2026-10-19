@@ -111,6 +111,7 @@ public class VodConfig {
         callback.start();
     }
 
+    // 加载配置并为内置来源启用订阅聚合。
     private void loadConfig(int id, Config config, Callback callback) {
         try {
             OkHttp.cancel(TAG);
@@ -118,7 +119,8 @@ public class VodConfig {
             String url = config.getUrl();
             String json;
             if (BuiltinConfig.URL.equals(url)) {
-                json = Decoder.fixJson(BuiltinConfig.BASE + "0821.json", BuiltinConfig.VOD_JSON);
+                // 使用有效点播快照并后台更新订阅。
+                json = com.fongmi.android.tv.api.source.SourceCatalog.vod();
             } else if (url != null && url.startsWith("assets://")) {
                 String raw = Asset.read(url.replace("assets://", ""));
                 if (raw.isEmpty()) throw new Exception("assets file not found");

@@ -200,4 +200,14 @@
         <item>Select subtitle track</item>
     </string-array>
 
+    <string name="source_cctv">Domestic · CCTV</string>
+    <string name="source_satellite">Domestic · Satellite</string>
+    <string name="source_local">Domestic · Local</string>
+    <string name="source_hmt">Hong Kong / Macao / Taiwan</string>
+    <string name="source_world">International</string>
+    <string name="source_exhausted">All available sources failed. Try again later.</string>
+    <string name="source_news">International · News</string>
+    <string name="source_movies">International · Movies / Series</string>
+    <string name="source_sports">International · Sports</string>
+    <string name="source_documentary">International · Documentary</string>
 </resources>

@@ -106,6 +106,15 @@ public class Live {
     @SerializedName("groups")
     private List<Group> groups;
 
+    @Ignore
+    @SerializedName("sources")
+    private List<Live> sources;
+
+    // 获取用户配置的直播聚合订阅。
+    public List<Live> getSources() {
+        return sources == null ? java.util.Collections.emptyList() : sources;
+    }
+
     @SerializedName("boot")
     private boolean boot;
 

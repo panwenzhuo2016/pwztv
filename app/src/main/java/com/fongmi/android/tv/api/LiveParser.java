@@ -2,7 +2,7 @@ package com.fongmi.android.tv.api;
 
 import androidx.media3.common.MimeTypes;
 
-import com.fongmi.android.tv.api.config.BuiltinConfig;
+import com.fongmi.android.tv.api.source.LiveCatalog;
 import com.fongmi.android.tv.bean.Catchup;
 import com.fongmi.android.tv.bean.Channel;
 import com.fongmi.android.tv.bean.ClearKey;
@@ -46,24 +46,33 @@ public class LiveParser {
         return "";
     }
 
+    // 优先聚合订阅并兼容单一直播配置。
     public static void start(Live live) throws Exception {
         if (!live.getGroups().isEmpty()) return;
+        // 识别内置或用户定义的直播聚合入口。
+        if (LiveCatalog.accepts(live)) {
+            // 并行更新清单并用有效快照聚合频道。
+            LiveCatalog.load(live);
+            return;
+        }
+        // 读取单一来源的直播清单。
         String text = getText(live);
         if (Json.isArray(text)) json(live, text);
         else text(live, text);
     }
 
+    // 读取单一来源的直播清单。
     private static String getText(Live live) throws Exception {
         if (!live.getApi().isEmpty()) return live.spider().liveContent(live.getUrl());
         String url = live.getUrl();
-        String builtin = BuiltinConfig.getBuiltinM3u(url);
-        if (!builtin.isEmpty()) return builtin;
         return OkHttp.string(UrlUtil.convert(url), live.getHeaders());
     }
 
     public static void text(Live live, String text) {
         if (!live.getGroups().isEmpty()) return;
+        // 解析播放清单并保留每线路请求参数。
         if (M3U.matcher(text).find()) m3u(live, text);
+        // 解析文本清单并保留每线路请求参数。
         else txt(live, text);
         apply(live);
     }
@@ -83,6 +92,7 @@ public class LiveParser {
         }
     }
 
+    // 解析播放清单并保留每线路请求参数。
     private static void m3u(Live live, String text) {
         Setting setting = Setting.create();
         Catchup catchup = Catchup.create();
@@ -102,6 +112,13 @@ public class LiveParser {
             } else if (line.startsWith("#EXTINF:")) {
                 Group group = live.find(Group.create(extract(line, GROUP), live.isPass()));
                 channel = group.find(Channel.create(extract(line, NAME)));
+                channel.setHeader(new HashMap<>());
+                channel.setOrigin("");
+                channel.setReferer("");
+                channel.setDrm(null);
+                channel.setParse(0);
+                channel.setClick("");
+                channel.setFormat(null);
                 channel.setUa(extract(line, HTTP_USER_AGENT));
                 channel.setTvgName(extract(line, TVG_NAME));
                 channel.setNumber(extract(line, TVG_CHNO));
@@ -115,12 +132,16 @@ public class LiveParser {
             } else if (!line.startsWith("#") && line.contains("://")) {
                 String[] parts = line.split("\\|", 2);
                 if (parts.length > 1) setting.headers(parts[1]);
-                channel.getUrls().add(parts[0]);
-                setting.copy(channel).clear();
+                setting.copy(channel);
+                channel.live(live);
+                // 保存每条线路独立的播放请求参数。
+                channel.addRoute(channel, parts[0], "");
+                setting.clear();
             }
         }
     }
 
+    // 解析文本清单并保留每线路请求参数。
     private static void txt(Live live, String text) {
         Setting setting = Setting.create();
         text = text.replace("\r\n", "\n").replace("\r", "");
@@ -137,8 +158,10 @@ public class LiveParser {
                 for (String url : split[1].split("#")) {
                     String[] parts = url.split("\\|", 2);
                     if (parts.length > 1) setting.headers(parts[1]);
-                    channel.getUrls().add(parts[0]);
                     setting.copy(channel);
+                    channel.live(live);
+                    // 保存每条线路独立的播放请求参数。
+                    channel.addRoute(channel, parts[0], "");
                 }
             }
         }

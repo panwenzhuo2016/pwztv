@@ -34,11 +34,17 @@ public class SearchTask implements Callable<Result> {
         this.site = site;
     }
 
-    public Runnable run() {
+    // 后台搜索并仅发布本轮有效结果。
+    public Runnable run(int generation) {
         return () -> {
             try {
-                model.search.postValue(call());
-            } catch (Throwable ignored) {
+                Result result = call();
+                if (Thread.currentThread().isInterrupted()) return;
+                // 仅在当前搜索轮次发布异步返回结果。
+                model.publishSearch(generation, result);
+            } catch (Exception error) {
+                if (error instanceof InterruptedException) Thread.currentThread().interrupt();
+                SpiderDebug.log("search", "site=%s failed=%s", site.getKey(), error.getClass().getSimpleName());
             }
         };
     }

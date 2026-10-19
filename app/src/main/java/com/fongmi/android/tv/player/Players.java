@@ -664,6 +664,7 @@ public class Players implements Player.Listener, ParseCallback {
 
     @Override
     public void onPlayerError(@NonNull PlaybackException e) {
+        // 展示实际HTTP状态码便于定位失效来源。
         if (++retry > 2) ErrorEvent.extract(tag, provider.get(e));
         else switch (e.errorCode) {
             case PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW:
@@ -682,6 +683,7 @@ public class Players implements Player.Listener, ParseCallback {
                 setFormat(ExoUtil.getMimeType(e.errorCode));
                 break;
             default:
+                // 展示实际HTTP状态码便于定位失效来源。
                 ErrorEvent.extract(tag, provider.get(e));
                 break;
         }

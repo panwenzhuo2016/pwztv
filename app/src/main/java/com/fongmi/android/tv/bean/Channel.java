@@ -65,6 +65,26 @@ public class Channel {
     private String show;
     private Epg data;
     private int line;
+    private transient Map<String, Channel> routes = new HashMap<>();
+
+    // 保存每条线路独立的播放请求参数。
+    public void addRoute(Channel source, String url, String label) {
+        String route = url + (label.isEmpty() ? "" : "$" + label.replace("$", ""));
+        if (!getUrls().contains(route)) getUrls().add(route);
+        if (routes == null) routes = new HashMap<>();
+        Channel metadata = new Channel();
+        metadata.setHeader(new HashMap<>(source.getHeaders()));
+        metadata.setDrm(source.getDrm());
+        metadata.setClick(source.getClick());
+        metadata.setParse(source.getParse());
+        metadata.setFormat(source.getFormat());
+        routes.put(route, metadata);
+    }
+
+    // 获取指定线路自己的播放请求参数。
+    public Channel route(String url) {
+        return routes == null ? this : routes.getOrDefault(url, this);
+    }
 
     public static Channel objectFrom(JsonElement element) {
         return App.gson().fromJson(element, Channel.class);
@@ -79,6 +99,7 @@ public class Channel {
     }
 
     public static Channel create(Channel channel) {
+        // 复制频道并保留线路独立请求参数。
         return new Channel().copy(channel);
     }
 
@@ -341,7 +362,9 @@ public class Channel {
         return headers;
     }
 
+    // 复制频道并保留线路独立请求参数。
     public Channel copy(Channel item) {
+        routes = item.routes == null ? new HashMap<>() : new HashMap<>(item.routes);
         setCatchup(item.getCatchup());
         setReferer(item.getReferer());
         setTvgName(item.getTvgName());
@@ -363,14 +386,17 @@ public class Channel {
         return this;
     }
 
+    // 使用当前线路独立参数生成播放请求。
     public Result result() {
+        // 获取指定线路自己的播放请求参数。
+        Channel source = getUrls().isEmpty() ? this : route(getUrls().get(getLine()));
         Result result = new Result();
-        result.setDrm(getDrm());
+        result.setDrm(source.getDrm());
         result.setUrl(getCurrent());
-        result.setClick(getClick());
-        result.setParse(getParse());
-        result.setFormat(getFormat());
-        result.setHeader(getHeaders());
+        result.setClick(source.getClick());
+        result.setParse(source.getParse());
+        result.setFormat(source.getFormat());
+        result.setHeader(source.getHeaders());
         return result;
     }
 

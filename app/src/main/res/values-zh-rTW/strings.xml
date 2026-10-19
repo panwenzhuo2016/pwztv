@@ -194,4 +194,14 @@
         <item>選擇字幕</item>
     </string-array>
 
+    <string name="source_cctv">國內 · 央視</string>
+    <string name="source_satellite">國內 · 衛視</string>
+    <string name="source_local">國內 · 地方</string>
+    <string name="source_hmt">港澳臺</string>
+    <string name="source_world">國際</string>
+    <string name="source_exhausted">可用來源已嘗試完，請稍後重試</string>
+    <string name="source_news">國際 · 新聞</string>
+    <string name="source_movies">國際 · 影視</string>
+    <string name="source_sports">國際 · 體育</string>
+    <string name="source_documentary">國際 · 紀錄</string>
 </resources>

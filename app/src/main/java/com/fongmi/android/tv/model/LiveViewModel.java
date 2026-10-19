@@ -79,6 +79,7 @@ public class LiveViewModel extends ViewModel {
 
     public void getLive(Live item) {
         execute(TaskType.LIVE, () -> {
+            // 优先聚合订阅并兼容单一直播配置。
             LiveParser.start(item.recent());
             setTimeZone(item);
             verify(item);
@@ -111,6 +112,7 @@ public class LiveViewModel extends ViewModel {
     public void getUrl(Channel item) {
         execute(TaskType.URL, () -> {
             Source.get().stop();
+            // 使用当前线路独立参数生成播放请求。
             Result result = item.result();
             result.setUrl(Source.get().fetch(result));
             return result;
@@ -120,6 +122,7 @@ public class LiveViewModel extends ViewModel {
     public void getUrl(Channel item, EpgData data) {
         execute(TaskType.URL, () -> {
             Source.get().stop();
+            // 使用当前线路独立参数生成播放请求。
             Result result = item.result();
             result.setUrl(item.getCatchup().format(Source.get().fetch(result), data));
             return result;

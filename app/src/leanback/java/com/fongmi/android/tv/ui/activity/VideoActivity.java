@@ -31,6 +31,10 @@ import androidx.viewbinding.ViewBinding;
 
 import com.bumptech.glide.request.transition.Transition;
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.api.source.SourceHealth;
+import com.fongmi.android.tv.api.source.SourceManifest;
+import com.fongmi.android.tv.api.source.VideoFallback;
+import com.fongmi.android.tv.api.source.VideoRecovery;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.Setting;
@@ -117,7 +121,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     private PartPresenter mPartPresenter;
     private CustomKeyDownVod mKeyDown;
     private SiteViewModel mViewModel;
-    private List<String> mBroken;
+    private VideoFallback mFallback;
     private History mHistory;
     private Players mPlayers;
     private boolean fullscreen;
@@ -272,7 +276,9 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         mObservePlayer = this::setPlayer;
         mObserveSearch = this::setSearch;
         mPlayers = Players.create(this);
-        mBroken = new ArrayList<>();
+        // 获取内置订阅与失败切换策略。
+        // 为一次点播设置有限的换站次数。
+        mFallback = new VideoFallback(SourceManifest.get().maxVideoAttempts);
         mR1 = this::hideControl;
         mR2 = this::updateFocus;
         mR3 = this::setTraffic;
@@ -355,6 +361,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         mBinding.array.setAdapter(new ItemBridgeAdapter(mArrayAdapter = new ArrayObjectAdapter(new ArrayPresenter(this))));
         mBinding.part.setHorizontalSpacing(ResUtil.dp2px(8));
         mBinding.part.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
+        // 初始化搜索并固定本轮目标片名。
         mBinding.part.setAdapter(new ItemBridgeAdapter(mPartAdapter = new ArrayObjectAdapter(mPartPresenter = new PartPresenter(item -> initSearch(item, false)))));
         mBinding.quick.setHorizontalSpacing(ResUtil.dp2px(8));
         mBinding.quick.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -433,6 +440,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         } else {
             mBinding.name.setText(getName());
             App.post(mR4, 10000);
+            // 有限换站且每轮只启动一次自动搜索。
             checkSearch(false);
         }
     }
@@ -441,6 +449,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         mBinding.progressLayout.showEmpty();
     }
 
+    // 加载详情并校验自动换站的集数。
     private void setDetail(Vod item) {
         item.checkPic(getPic());
         item.checkName(getName());
@@ -449,7 +458,17 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         mFlagAdapter.setItems(item.getFlags(), null);
         mBinding.video.requestFocus();
         App.removeCallbacks(mR4);
+        // 记录原始影片身份防止切到同名异片。
+        mFallback.target(item.getName(), item.getYear());
         checkHistory(item);
+        // 查找换站后相同集数并保留原播放进度。
+        if (isAutoMode() && !VideoRecovery.resume(mFallback, item, mHistory)) {
+            // 使用站点与影片组合记录已试来源。
+            mFallback.fail(getKey(), getId());
+            // 有限换站且每轮只启动一次自动搜索。
+            checkSearch(true);
+            return;
+        }
         checkFlag(item);
         checkKeepImg();
         setText(item);
@@ -543,6 +562,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         notifyItemChanged(mBinding.flag, mFlagAdapter);
         setEpisodeAdapter(item.getEpisodes());
         setQualityVisible(false);
+        // 换源时严格使用同一集避免跳到首集。
         seamless(item);
     }
 
@@ -553,15 +573,34 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         setR2Callback();
     }
 
+    // 换源时严格使用同一集避免跳到首集。
     private void seamless(Flag flag) {
         Episode episode = flag.find(mHistory.getVodRemarks(), getMark().isEmpty());
+        // 判断是否存在待续播的集数。
+        if (mFallback.hasResume()) {
+            // 按集名或相同数字匹配续播集数。
+            episode = flag.getEpisodes().stream().filter(item -> mFallback.matchesEpisode(item.getName(), flag.getEpisodes().size() == 1)).findFirst().orElse(null);
+            if (episode == null) {
+                checkFlag();
+                return;
+            }
+        }
         setQualityVisible(episode != null && episode.isActivated() && mQualityAdapter.getItemCount() > 1);
         if (episode == null || episode.isActivated()) return;
         mHistory.setVodRemarks(episode.getName());
         setEpisodeActivated(episode);
     }
 
+    // 换集时清理不匹配的恢复目标。
     private void setEpisodeActivated(Episode item) {
+        // 判断是否存在待续播的集数。
+        // 按集名或相同数字匹配续播集数。
+        if (mFallback.hasResume() && !mFallback.matchesEpisode(item.getName(), getFlag().getEpisodes().size() == 1)) {
+            // 播放成功或主动选片后开始新的恢复轮次。
+            mFallback.reset();
+            // 记录原始影片身份防止切到同名异片。
+            mFallback.target(mBinding.name.getText().toString(), "");
+        }
         int flagPosition = getFlagPosition();
         if (shouldEnterFullscreen(item)) return;
         if (isFullscreen()) Notify.show(getString(R.string.play_ready, item.getName()));
@@ -689,6 +728,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     }
 
     private void onChange() {
+        // 有限换站且每轮只启动一次自动搜索。
         checkSearch(true);
     }
 
@@ -1094,6 +1134,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
+    // 播放成功后结束本轮自动恢复。
     public void onPlayerEvent(PlayerEvent event) {
         if (!event.getTag().equals(tag)) return;
         switch (event.getState()) {
@@ -1107,6 +1148,12 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
             case Player.STATE_READY:
                 hideProgress();
                 mPlayers.reset();
+                // 播放恢复后清空本轮失败与续播状态。
+                mFallback.recovered();
+                setInitAuto(false);
+                // 获取设备内共享的来源状态表。
+                // 成功播放后清除对应失败记录。
+                SourceHealth.get().success("vod:" + getKey());
                 break;
             case Player.STATE_ENDED:
                 checkEnded(true);
@@ -1150,19 +1197,31 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
+    // 保存失败前的进度并启动自动恢复。
     public void onErrorEvent(ErrorEvent event) {
         if (!event.getTag().equals(tag)) return;
         Track.delete(mPlayers.getUrl());
         showError(event.getMsg());
         mClock.setCallback(null);
+        if (mHistory != null) {
+            // 保存换站前集数与内存播放进度。
+            mFallback.remember(mHistory.getVodRemarks(), Math.max(mHistory.getPosition(), mPlayers.getPosition()), getFlag().getEpisodes().size() == 1);
+        }
         mPlayers.resetTrack();
         mPlayers.reset();
         mPlayers.stop();
+        // 按用户设置切换解析线路或跨站找片。
         startFlow();
     }
 
+    // 按用户设置切换解析线路或跨站找片。
     private void startFlow() {
-        if (!getSite().isChangeable()) return;
+        if (!Setting.isChange() || getSite().getChangeable() == 2) return;
+        if (!getSite().isChangeable()) {
+            // 有限换站且每轮只启动一次自动搜索。
+            checkSearch(false);
+            return;
+        }
         if (isUseParse()) checkParse();
         else checkFlag();
     }
@@ -1184,24 +1243,45 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
 
     private void checkFlag() {
         int position = isGone(mBinding.flag) ? -1 : getFlagPosition();
+        // 有限换站且每轮只启动一次自动搜索。
         if (position == mFlagAdapter.size() - 1) checkSearch(false);
         else nextFlag(position);
     }
 
+    // 有限换站且每轮只启动一次自动搜索。
     private void checkSearch(boolean force) {
-        if (mQuickAdapter.size() == 0) initSearch(mBinding.name.getText().toString(), true);
-        else if (isAutoMode() || force) nextSite();
+        // 使用站点与影片组合记录已试来源。
+        mFallback.fail(getKey(), getId());
+        // 获取设备内共享的来源状态表。
+        // 记录失败并淘汰最早的状态。
+        SourceHealth.get().fail("vod:" + getKey());
+        if (mQuickAdapter.size() == 0) {
+            // 每轮失败最多启动一次跨站搜索。
+            // 初始化搜索并固定本轮目标片名。
+            if (mFallback.beginSearch()) initSearch(mBinding.name.getText().toString(), true);
+            else {
+                setInitAuto(true);
+                showError(getString(R.string.source_exhausted));
+            }
+        } else if (isAutoMode() || force) nextSite();
     }
 
+    // 初始化搜索并固定本轮目标片名。
     private void initSearch(String keyword, boolean auto) {
+        // 记录原始影片身份防止切到同名异片。
+        mFallback.target(keyword, "");
         setAutoMode(auto);
         setInitAuto(auto);
         startSearch(keyword);
         mBinding.part.setTag(keyword);
     }
 
+    // 自动换站跳过关闭换源或冷却中的站点。
     private boolean isPass(Site item) {
-        if (isAutoMode() && !item.isChangeable()) return false;
+        if (isAutoMode() && item.getChangeable() == 2) return false;
+        // 获取设备内共享的来源状态表。
+        // 冷却结束后允许重新尝试来源。
+        if (isAutoMode() && !SourceHealth.get().available("vod:" + item.getKey())) return false;
         return item.isSearchable();
     }
 
@@ -1224,14 +1304,19 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
 
     private void setSearch(Vod item) {
         setAutoMode(false);
+        // 播放成功或主动选片后开始新的恢复轮次。
+        mFallback.reset();
         getDetail(item);
     }
 
+    // 过滤已试来源与同名异片候选。
     private boolean mismatch(Vod item) {
-        if (getId().equals(item.getId())) return true;
-        if (mBroken.contains(item.getId())) return true;
+        if (getKey().equals(item.getSiteKey()) && getId().equals(item.getId())) return true;
+        // 禁止重复尝试并限制本轮换站次数。
+        if (isAutoMode() && !mFallback.allows(item.getSiteKey(), item.getId())) return true;
         String keyword = Objects.toString(mBinding.part.getTag(), "");
-        if (isAutoMode()) return !item.getName().equals(keyword);
+        // 按片名与已知年份校验候选影片。
+        if (isAutoMode()) return !mFallback.matches(item.getName(), item.getYear());
         else return !item.getName().contains(keyword);
     }
 
@@ -1247,12 +1332,21 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         setFlagActivated(flag);
     }
 
+    // 选择未尝试且未超限的候选站点。
     private void nextSite() {
         if (mQuickAdapter.size() == 0) return;
         Vod item = (Vod) mQuickAdapter.get(0);
         Notify.show(getString(R.string.play_switch_site, item.getSiteName()));
         mQuickAdapter.removeItems(0, 1);
-        mBroken.add(getId());
+        // 使用站点与影片组合记录已试来源。
+        mFallback.fail(getKey(), getId());
+        // 禁止重复尝试并限制本轮换站次数。
+        if (!mFallback.allows(item.getSiteKey(), item.getId())) {
+            showError(getString(R.string.source_exhausted));
+            return;
+        }
+        // 使用站点与影片组合记录已试来源。
+        mFallback.fail(item.getSiteKey(), item.getId());
         setInitAuto(false);
         getDetail(item);
     }

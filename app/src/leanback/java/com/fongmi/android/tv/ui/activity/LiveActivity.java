@@ -22,6 +22,7 @@ import androidx.viewbinding.ViewBinding;
 
 import com.bumptech.glide.request.transition.Transition;
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.api.source.SourceHealth;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.Setting;
@@ -88,6 +89,7 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
     private List<Group> mHides;
     private Players mPlayers;
     private Channel mChannel;
+    private final java.util.Set<String> mFailedLines = new java.util.HashSet<>();
     private View mOldView;
     private Group mGroup;
     private Runnable mR0;
@@ -553,6 +555,7 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
     }
 
     @Override
+    // 选择频道并开始新的线路尝试。
     public void onItemClick(Channel item) {
         if (!item.getData().getList().isEmpty() && item.isSelected() && mChannel != null && mChannel.equals(item) && mChannel.getGroup().equals(mGroup)) {
             showEpg(item);
@@ -602,6 +605,7 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
 
     private void setChannel(Channel item) {
         App.post(mR0, 100);
+        mFailedLines.clear();
         mChannel = item;
         setMetadata();
         setArtwork();
@@ -772,6 +776,7 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
+    // 播放成功后重置线路失败状态。
     public void onPlayerEvent(PlayerEvent event) {
         if (!event.getTag().equals(tag)) return;
         switch (event.getState()) {
@@ -787,6 +792,10 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
             case Player.STATE_READY:
                 hideProgress();
                 mPlayers.reset();
+                // 获取设备内共享的来源状态表。
+                // 成功播放后清除对应失败记录。
+                if (mChannel != null) SourceHealth.get().success(mChannel.getCurrent());
+                mFailedLines.clear();
                 break;
             case Player.STATE_ENDED:
                 checkEnded();
@@ -830,12 +839,27 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
         mPlayers.resetTrack();
         mPlayers.reset();
         mPlayers.stop();
+        // 失败后有限尝试同台的其他健康线路。
         startFlow();
     }
 
+    // 失败后有限尝试同台的其他健康线路。
     private void startFlow() {
-        if (!Setting.isChange()) return;
-        if (!mChannel.isLast()) nextLine(true);
+        if (!Setting.isChange() || mChannel == null) return;
+        // 获取设备内共享的来源状态表。
+        SourceHealth health = SourceHealth.get();
+        // 记录失败并淘汰最早的状态。
+        health.fail(mChannel.getCurrent());
+        mFailedLines.add(mChannel.getCurrent());
+        // 有限遍历并跳过本轮已失败的线路。
+        int next = health.next(mChannel.getUrls(), mChannel.getLine(), mFailedLines);
+        if (next < 0) {
+            showError(getString(R.string.source_exhausted));
+            return;
+        }
+        mChannel.setLine(next);
+        showInfo();
+        fetch();
     }
 
     private void prevChannel() {

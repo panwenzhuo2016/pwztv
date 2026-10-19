@@ -194,4 +194,14 @@
         <item>选择字幕</item>
     </string-array>
 
+    <string name="source_cctv">国内 · 央视</string>
+    <string name="source_satellite">国内 · 卫视</string>
+    <string name="source_local">国内 · 地方</string>
+    <string name="source_hmt">港澳台</string>
+    <string name="source_world">国际</string>
+    <string name="source_exhausted">可用来源已尝试完，请稍后重试</string>
+    <string name="source_news">国际 · 新闻</string>
+    <string name="source_movies">国际 · 影视</string>
+    <string name="source_sports">国际 · 体育</string>
+    <string name="source_documentary">国际 · 纪录</string>
 </resources>
