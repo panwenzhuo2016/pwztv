@@ -14,6 +14,7 @@ import tempfile
 import zipfile
 
 from apk_size import compress_mitv, verify_contents
+from release_cache import ReleaseCache
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "Release"
@@ -46,7 +47,9 @@ def build_options(argv=None):
 def gradle_command(options):
     tasks = [f":app:assemble{mode.capitalize()}{abi.capitalize()}Release" for mode in MODES for abi in options.abis]
     return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", "gradlew.bat", *tasks,
-            f"-PwithPython={str(options.with_python).lower()}", "--console=plain", "--stacktrace"]
+            f"-PwithPython={str(options.with_python).lower()}",
+            "--no-configuration-cache" if options.with_python else "--configuration-cache",
+            "--console=plain", "--stacktrace"]
 
 
 # 反查安装包中的Python组件与构建选项一致。
@@ -180,11 +183,23 @@ def main():
     # 按构建元数据校验本次发布产物。
     packages = release_apks(expected)
     OUTPUT.mkdir(exist_ok=True)
+    # 汇总工具、密钥、脚本和构建选项指纹。
+    cache = ReleaseCache(ROOT / '.gradle' / 'release-cache', OUTPUT,
+                         [Path(__file__), ROOT / 'scripts' / 'apk_size.py',
+                          ROOT / 'scripts' / 'release_cache.py', java, signer, aligner, keystore],
+                         {'alias': alias, 'with_python': options.with_python})
     with tempfile.TemporaryDirectory(prefix=".staging-", dir=OUTPUT) as staging:
         staged = Path(staging)
+        prepared = []
         for name, source in sorted(packages.items()):
             # 反查安装包中的Python组件与构建选项一致。
             verify_python_contents(source, options.with_python)
+            # 将原始安装包内容纳入缓存身份。
+            fingerprint = cache.fingerprint(source)
+            # 只复用内容一致且附属签名完整的产物。
+            if cache.matches(name, fingerprint):
+                print(f'Reusing verified release: {name}', flush=True)
+                continue
             compressed = staged / (name + '.compressed')
             aligned = staged / (name + '.aligned')
             # 仅压缩流式读取的MITV资源并保留其他条目属性。
@@ -203,11 +218,16 @@ def main():
             ], env)
             # 执行外部工具并保留失败退出码。
             run([java, "-jar", signer, "verify", "--verbose", "--print-certs", staged / name], env)
-        for name in sorted(packages):
+            # 原子记录已验签产物，发布后才能命中。
+            cache.save(name, fingerprint, staged)
+            prepared.append(name)
+        for name in prepared:
             (staged / name).replace(OUTPUT / name)
             idsig = staged / (name + ".idsig")
             if idsig.exists():
                 idsig.replace(OUTPUT / idsig.name)
+            else:
+                (OUTPUT / (name + '.idsig')).unlink(missing_ok=True)
     print(f"\nSUCCESS: {len(packages)} signed release APKs are in {OUTPUT}", flush=True)
     for name in sorted(packages):
         apk = OUTPUT / name
