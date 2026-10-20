@@ -3,7 +3,10 @@
     "id": "vod",
     "name": "点播目录",
     "url": "https://raw.githubusercontent.com/qist/tvbox/master/0821.json",
-    "snapshot": "sources/vod.json"
+    "snapshot": "sources/vod.json",
+    "mirrors": [
+      "https://cdn.jsdelivr.net/gh/qist/tvbox@master/0821.json"
+    ]
   },
   "live": [
     {
@@ -18,7 +21,10 @@
       "name": "国内备用",
       "url": "https://raw.githubusercontent.com/Guovin/iptv-api/gd/output/result.m3u",
       "snapshot": "sources/guovin.m3u",
-      "domestic": true
+      "domestic": true,
+      "mirrors": [
+        "https://cdn.jsdelivr.net/gh/Guovin/iptv-api@gd/output/result.m3u"
+      ]
     },
     {
       "id": "world",
@@ -32,14 +38,50 @@
       "name": "国际备用",
       "url": "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8",
       "snapshot": "sources/freetv.m3u",
-      "domestic": false
+      "domestic": false,
+      "mirrors": [
+        "https://cdn.jsdelivr.net/gh/Free-TV/IPTV@master/playlist.m3u8"
+      ]
     },
     {
       "id": "ipv6",
       "name": "国内IPv6备用",
       "url": "https://raw.githubusercontent.com/fanmingming/live/main/tv/m3u/ipv6.m3u",
       "snapshot": "sources/ipv6.m3u",
-      "domestic": true
+      "domestic": true,
+      "mirrors": [
+        "https://cdn.jsdelivr.net/gh/fanmingming/live@main/tv/m3u/ipv6.m3u"
+      ]
+    },
+    {
+      "id": "aptv",
+      "name": "APTV备用",
+      "url": "https://raw.githubusercontent.com/Kimentanm/aptv/master/m3u/iptv.m3u",
+      "snapshot": "sources/aptv.m3u",
+      "domestic": true,
+      "mirrors": [
+        "https://cdn.jsdelivr.net/gh/Kimentanm/aptv@master/m3u/iptv.m3u"
+      ]
+    },
+    {
+      "id": "yuechan",
+      "name": "港台国际拓展",
+      "url": "https://raw.githubusercontent.com/YueChan/Live/main/GNTV.m3u",
+      "snapshot": "sources/yuechan.m3u",
+      "domestic": false,
+      "mirrors": [
+        "https://cdn.jsdelivr.net/gh/YueChan/Live@main/GNTV.m3u"
+      ]
+    },
+    {
+      "id": "suxuang",
+      "name": "国内拓展",
+      "url": "https://raw.githubusercontent.com/suxuang/myIPTV/main/ipv4.m3u",
+      "snapshot": "sources/suxuang.m3u",
+      "domestic": true,
+      "mirrors": [
+        "https://cdn.jsdelivr.net/gh/suxuang/myIPTV@main/ipv4.m3u"
+      ]
     }
   ]
 }

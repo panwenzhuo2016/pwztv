@@ -25,7 +25,9 @@
 
 默认直播入口聚合国内、国际清单，同台节目合并备用线路，保留每条线路的请求头。国内按央视、卫视、地方和港澳台分组，国际按新闻、影视、体育、纪录及其他分类，频道名保留地区区别。排除 RTP 组播和明显内网地址，IPv6 来源作为后备；播放能力仍取决于设备网络和来源限制。
 
-内置来源目录位于 `app/src/main/assets/sources.json`，随包快照位于 `sources/`。来源包括 [iptv-org](https://github.com/iptv-org/iptv)、[Free-TV](https://github.com/Free-TV/IPTV)、[Guovin](https://github.com/Guovin/iptv-api)、[fanmingming](https://github.com/fanmingming/live) 和 [qist](https://github.com/qist/tvbox)。点播保留原有站点，按站点编号去重由 84 个增至 107 个，净增加 23 个接口；其中量子、非凡新增 JSON 接口，另含无尽、魔都、最大、如意、红牛、新浪、极速、光速、速播、豆瓣、金鹰、豪华、360、闪电、iKun、电影天堂、U酷、1080资源库、CK资源、樱花资源、艾旦影视。直接采集接口共 26 个，均参与原有点播和搜索流程。公开清单不等于全部节目可播，也不代表已收齐全网来源。
+内置来源目录位于 `app/src/main/assets/sources.json`，随包快照位于 `sources/`。直播共有 8 份订阅，来源包括 [iptv-org](https://github.com/iptv-org/iptv)、[Free-TV](https://github.com/Free-TV/IPTV)、[Guovin](https://github.com/Guovin/iptv-api)、[fanmingming](https://github.com/fanmingming/live)、[APTV](https://github.com/Kimentanm/aptv)、[YueChan](https://github.com/YueChan/Live) 和 [suxuang](https://github.com/suxuang/myIPTV)。缺少频道地区 ID 时，按原清单明确标注的港台、地方、国际分组归类；可靠地区 ID 优先。支持镜像的 7 个目录配置了 jsDelivr 后备地址，主地址不可用时依次尝试，下载仍执行大小、超时和格式校验。
+
+点播保留 [qist](https://github.com/qist/tvbox) 原有站点，随包配置按站点编号去重共 121 个，其中 40 个为直接采集接口，均参与原有点播和搜索流程。直接接口包含虎牙、大众，以及量子、非凡、魔都、最大、金鹰、360、U酷、1080资源库、红牛、速播等备用入口。候选参考 [vodtv/api](https://github.com/vodtv/api)、[hafrey1/LunaTV-config](https://github.com/hafrey1/LunaTV-config)、[heardic/shipinyuan](https://github.com/heardic/shipinyuan) 等公开配置，经搜索正反例、详情及媒体分片抽样筛选；排除仅 HTTP/HTTPS 不同或重复指向同一接口的地址。同片库备用域名可能共用媒体服务器，不能视为互相独立的片源。公开清单不等于全部节目可播，也不代表已收齐全网来源。
 
 默认每 6 小时在加载时安排后台更新；下载超时、返回网页或格式错误均保留最后有效缓存，首次使用内置快照。更新不打断正在播放的节目，重新打开或刷新直播清单后使用新缓存。策略可在 `sources.json` 调整：单次下载最多 8MB、失败冷却 5 分钟、同台最多 24 条线路、每轮点播最多 20 个候选。
 
@@ -51,6 +53,8 @@
 自定义清单支持现有 M3U/TXT 格式，最多 20 份订阅；没有快照时并行下载，首次等待总计最多 12 秒。只合并有可靠频道标识的同台节目；国际无标识的同名频道保守保留，避免混合不同国家节目。
 
 运行 `py -3.10 scripts/probe_sources.py --samples-per-source 3` 可抽样检查直播清单引用、点播列表与详情以及 HLS 媒体分片，结果保存到 `build/source-research/media-probe.json`。这项检查不等于全量播放验证，也不覆盖地域限制或后续失效。
+
+验证新增点播候选可运行 `py -3.10 scripts/probe_sources.py --candidates candidates.json --samples-per-source 3 --output build/source-research/candidates-report.json`。候选文件是包含 `name`、`api` 的 JSON 数组，可选 `key`、`from`；最多 200 条、并发 6 路，仅探测，不改应用配置。检查搜索确实匹配关键词、无结果关键词返回空列表，再抽样多个影片详情和实际媒体数据。直播探测保留每条线路的请求头、剥离展示标签。AES-128 分片会获取密钥并解密校验，需要 Python 环境安装 `pycryptodome`；不会关闭 TLS 证书验证。离线回归可运行 `py -3.10 -m unittest discover -s scripts -p test_probe_sources.py`。
 
 ### 基於 CatVod 項目
 

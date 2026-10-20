@@ -5,6 +5,38 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class SourceRulesTest {
+    // 验证混合清单按分组归类且地区标识优先。
+    @Test public void classifiesMixedPlaylistsWithoutOverridingStableRegion() {
+        // 优先频道地区标识再按明确分组判断归属。
+        assertTrue(ChannelIdentity.domestic("", false, "港台频道"));
+        // 优先频道地区标识再按明确分组判断归属。
+        assertTrue(ChannelIdentity.domestic("", false, "港澳代理"));
+        // 优先频道地区标识再按明确分组判断归属。
+        assertTrue(ChannelIdentity.domestic("", false, "地方频道"));
+        // 优先频道地区标识再按明确分组判断归属。
+        assertFalse(ChannelIdentity.domestic("", true, "国际频道"));
+        // 优先频道地区标识再按明确分组判断归属。
+        assertFalse(ChannelIdentity.domestic("ABC.us@HD", true, "港台频道"));
+        // 优先频道地区标识再按明确分组判断归属。
+        assertTrue(ChannelIdentity.domestic("CCTV1.cn", false, "国际频道"));
+        // 优先频道地区标识再按明确分组判断归属。
+        assertTrue(ChannelIdentity.domestic("", true, null));
+        // 优先频道地区标识再按明确分组判断归属。
+        assertFalse(ChannelIdentity.domestic("", false, "General"));
+        // 将国内外频道归入有限的节目分类。
+        assertEquals(ChannelIdentity.Category.HMT, ChannelIdentity.category("香港卫视", "", "港台频道", true));
+        // 将国内外频道归入有限的节目分类。
+        assertEquals(ChannelIdentity.Category.HMT, ChannelIdentity.category("中視新聞", "123", "港澳台", true));
+        // 将国内外频道归入有限的节目分类。
+        assertEquals(ChannelIdentity.Category.HMT, ChannelIdentity.category("中視新聞", "123", "臺灣", true));
+        // 将国内外频道归入有限的节目分类。
+        assertEquals(ChannelIdentity.Category.LOCAL, ChannelIdentity.category("地方台", "", "地方频道", true));
+        // 将国内外频道归入有限的节目分类。
+        assertEquals(ChannelIdentity.Category.WORLD, ChannelIdentity.category("ABC", "ABC.us", "港台频道", false));
+        // 将国内外频道归入有限的节目分类。
+        assertEquals(ChannelIdentity.Category.CCTV, ChannelIdentity.category("CCTV1", "CCTV1.cn", "港台频道", true));
+    }
+
     // 验证有限分类与公网地址过滤边界。
     @Test public void classifiesChannelsAndRejectsPrivateRoutes() {
         // 将国内外频道归入有限的节目分类。

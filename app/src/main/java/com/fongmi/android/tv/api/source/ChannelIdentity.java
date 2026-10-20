@@ -22,10 +22,13 @@ public final class ChannelIdentity {
         return (domestic ? "CN" : (group == null ? "" : group.trim().toUpperCase(Locale.ROOT))) + ":" + cleaned.toUpperCase(Locale.ROOT);
     }
 
-    // 判断频道是否属于国内或港澳台。
-    public static boolean domestic(String id, boolean sourceDomestic) {
+    // 优先频道地区标识再按明确分组判断归属。
+    public static boolean domestic(String id, boolean sourceDomestic, String group) {
         String stable = id == null ? "" : id.split("@", 2)[0].toLowerCase(Locale.ROOT);
         if (stable.contains(".")) return stable.matches(".*\\.(cn|hk|mo|tw)$");
+        String category = group == null ? "" : group.toLowerCase(Locale.ROOT);
+        if (category.matches(".*(?:国际频道|國際頻道|海外频道|海外頻道|international|world).*")) return false;
+        if (category.matches(".*(?:港台|港臺|港澳|香港|台湾|台灣|臺灣|澳门|澳門|央视|央視|卫视|衛視|地方|国内|國內).*")) return true;
         return sourceDomestic;
     }
 
@@ -35,6 +38,7 @@ public final class ChannelIdentity {
         String stable = id == null ? "" : id.toLowerCase(Locale.ROOT);
         if (domestic) {
             if (stable.matches(".*\\.(hk|mo|tw)(@.*)?$")) return Category.HMT;
+            if (!stable.contains(".") && group != null && group.matches(".*(?:港台|港臺|港澳|香港|台湾|台灣|臺灣|澳门|澳門).*")) return Category.HMT;
             if (title.startsWith("CCTV") || title.startsWith("CGTN") || title.contains("央视")) return Category.CCTV;
             if (title.contains("卫视") || title.contains("衛視")) return Category.SATELLITE;
             return Category.LOCAL;

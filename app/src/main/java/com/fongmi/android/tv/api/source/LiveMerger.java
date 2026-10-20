@@ -31,8 +31,8 @@ public final class LiveMerger {
         for (Group group : source.getGroups()) for (Channel channel : group.getChannel()) {
             String name = channel.getName();
             if (name.isBlank() || name.contains("更新时间") || name.contains("更新日期")) continue;
-            // 判断频道是否属于国内或港澳台。
-            boolean domestic = ChannelIdentity.domestic(channel.getTvgId(), entry.domestic);
+            // 优先频道地区标识再按明确分组判断归属。
+            boolean domestic = ChannelIdentity.domestic(channel.getTvgId(), entry.domestic, group.getName());
             // 使用稳定频道标识合并同台备用线路。
             String key = ChannelIdentity.key(channel.getTvgId(), name, entry.id + ":" + group.getName(), domestic);
             for (String route : channel.getUrls()) {

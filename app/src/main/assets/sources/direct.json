@@ -247,5 +247,131 @@
     "searchable": 1,
     "changeable": 1,
     "timeout": 8
+  },
+  {
+    "key": "zuida_backup",
+    "name": "最大备用┃采集",
+    "api": "https://zuidazy.me/api.php/provide/vod",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
+  },
+  {
+    "key": "modu_backup",
+    "name": "魔都备用┃采集",
+    "api": "https://caiji.moduapi.cc/api.php/provide/vod",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
+  },
+  {
+    "key": "huya",
+    "name": "虎牙┃采集",
+    "api": "https://www.huyaapi.com/api.php/provide/vod",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
+  },
+  {
+    "key": "liangzi_backup",
+    "name": "量子备用┃采集",
+    "api": "https://cj.lzcaiji.com/api.php/provide/vod",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
+  },
+  {
+    "key": "jinying_backup",
+    "name": "金鹰备用┃采集",
+    "api": "https://jinyingzy.com/api.php/provide/vod",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
+  },
+  {
+    "key": "zy360_backup",
+    "name": "360备用┃采集",
+    "api": "https://360zyzz.com/api.php/provide/vod",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
+  },
+  {
+    "key": "uku_backup",
+    "name": "U酷备用┃采集",
+    "api": "https://api.ukuapi.com/api.php/provide/vod",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
+  },
+  {
+    "key": "hd1080_backup",
+    "name": "1080资源库备用┃采集",
+    "api": "https://api.1080zyku.com/inc/apijson.php",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
+  },
+  {
+    "key": "hongniu_backup",
+    "name": "红牛备用┃采集",
+    "api": "https://www.hongniuzy3.com/api.php/provide/vod",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
+  },
+  {
+    "key": "feifan_backup",
+    "name": "非凡备用┃采集",
+    "api": "https://cj.ffzyapi.com/api.php/provide/vod",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
+  },
+  {
+    "key": "dazhong",
+    "name": "大众┃采集",
+    "api": "https://cdn.dzzyapi.com/api.php/provide/vod",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
+  },
+  {
+    "key": "feifan_line",
+    "name": "非凡线路备用┃采集",
+    "api": "https://yonghu.ffzyapi8.com/api.php/provide/vod/from/ffm3u8/at/json",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
+  },
+  {
+    "key": "subo_backup",
+    "name": "速播备用┃采集",
+    "api": "https://subocj.com/api.php/provide/vod",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
+  },
+  {
+    "key": "feifan_alt",
+    "name": "非凡域名备用┃采集",
+    "api": "https://ffzy5.tv/api.php/provide/vod",
+    "type": 1,
+    "searchable": 1,
+    "changeable": 1,
+    "timeout": 8
   }
 ]
