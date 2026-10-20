@@ -20,6 +20,9 @@ android {
         targetSdk 28
         versionCode 519
         versionName "5.1.9"
+        // 地区语言需显式列出，保留简繁中文和英文。
+        resourceConfigurations += ['en', 'en-rAU', 'en-rCA', 'en-rGB', 'en-rIN',
+                                   'zh', 'zh-rCN', 'zh-rTW', 'zh-rHK']
         buildConfigField 'boolean', 'PYTHON_ENABLED', withPython.toString()
         javaCompileOptions {
             annotationProcessorOptions {

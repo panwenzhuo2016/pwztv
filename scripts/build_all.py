@@ -13,6 +13,8 @@ import sys
 import tempfile
 import zipfile
 
+from apk_size import compress_mitv, verify_contents
+
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "Release"
 SIGNING = ROOT / ".signing"
@@ -158,6 +160,9 @@ def main():
     env["JAVA_HOME"] = str(java.parent.parent)
     # 查找本机安卓平台与签名工具。
     sdk, signer = find_sdk()
+    aligner = sdk / 'build-tools' / '35.0.0' / 'zipalign.exe'
+    if not aligner.is_file():
+        raise RuntimeError('zipalign missing. Reinstall Android SDK Build-Tools 35.0.0.')
     env.update(ANDROID_HOME=str(sdk), ANDROID_SDK_ROOT=str(sdk))
     # 创建或复用本地长期签名密钥。
     keystore, alias, env = signing_environment(keytool, env)
@@ -174,11 +179,21 @@ def main():
         for name, source in sorted(packages.items()):
             # 反查安装包中的Python组件与构建选项一致。
             verify_python_contents(source, options.with_python)
+            compressed = staged / (name + '.compressed')
+            aligned = staged / (name + '.aligned')
+            # 仅压缩流式读取的MITV资源并保留其他条目属性。
+            compress_mitv(source, compressed)
+            # 执行外部工具并保留失败退出码。
+            run([aligner, '-P', '16', '-f', '4', compressed, aligned], env)
+            # 执行外部工具并保留失败退出码。
+            run([aligner, '-c', '-P', '16', '4', aligned], env)
+            # 反查对齐后的全部内容与非目标压缩方式。
+            verify_contents(source, aligned)
             # 执行外部工具并保留失败退出码。
             run([
                 java, "-jar", signer, "sign", "--ks", keystore, "--ks-key-alias", alias,
                 "--ks-pass", "env:PWZTV_STORE_PASSWORD", "--key-pass", "env:PWZTV_STORE_PASSWORD",
-                "--out", staged / name, source,
+                "--out", staged / name, aligned,
             ], env)
             # 执行外部工具并保留失败退出码。
             run([java, "-jar", signer, "verify", "--verbose", "--print-certs", staged / name], env)
