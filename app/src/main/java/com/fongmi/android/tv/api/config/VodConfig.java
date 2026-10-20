@@ -4,7 +4,6 @@ import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
-import com.fongmi.android.tv.api.Decoder;
 import com.fongmi.android.tv.api.loader.BaseLoader;
 import com.fongmi.android.tv.bean.Config;
 import com.fongmi.android.tv.bean.Depot;
@@ -14,8 +13,6 @@ import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.utils.Notify;
-import com.fongmi.android.tv.utils.UrlUtil;
-import com.github.catvod.utils.Asset;
 import com.github.catvod.bean.Doh;
 import com.github.catvod.bean.Header;
 import com.github.catvod.bean.Proxy;
@@ -107,6 +104,7 @@ public class VodConfig {
     public void load(Callback callback) {
         int id = taskId.incrementAndGet();
         if (future != null && !future.isDone()) future.cancel(true);
+        // 加载配置并为内置来源启用订阅聚合。
         future = App.submit(() -> loadConfig(id, config, callback));
         callback.start();
     }
@@ -116,18 +114,8 @@ public class VodConfig {
         try {
             OkHttp.cancel(TAG);
             Server.get().start();
-            String url = config.getUrl();
-            String json;
-            if (BuiltinConfig.URL.equals(url)) {
-                // 使用有效点播快照并后台更新订阅。
-                json = com.fongmi.android.tv.api.source.SourceCatalog.vod();
-            } else if (url != null && url.startsWith("assets://")) {
-                String raw = Asset.read(url.replace("assets://", ""));
-                if (raw.isEmpty()) throw new Exception("assets file not found");
-                json = Decoder.fixJson(UrlUtil.convert(url), raw);
-            } else {
-                json = Decoder.getJson(UrlUtil.convert(url), TAG);
-            }
+            // 统一读取内置资源与远程配置。
+            String json = BuiltinConfig.load(config.getUrl(), TAG);
             checkJson(id, config, callback, Json.parse(json).getAsJsonObject());
             if (taskId.get() == id && config.equals(this.config)) config.update();
         } catch (Throwable e) {
@@ -153,6 +141,7 @@ public class VodConfig {
         List<Depot> items = Depot.arrayFrom(object.getAsJsonArray("urls").toString());
         List<Config> configs = new ArrayList<>();
         for (Depot item : items) configs.add(Config.find(item, 0));
+        // 加载配置并为内置来源启用订阅聚合。
         loadConfig(id, this.config = configs.get(0), callback);
         Config.delete(config.getUrl());
     }
@@ -162,6 +151,7 @@ public class VodConfig {
             initList(object);
             initLive(config, object);
             initWall(config, object);
+            // 初始化点播站点且不等待可选插件下载。
             initSite(config, object);
             initParse(config, object);
             config.logo(Json.safeString(object, "logo"));
@@ -201,9 +191,11 @@ public class VodConfig {
         if (sync) WallConfig.get().config(temp.update());
     }
 
+    // 初始化点播站点且不等待可选插件下载。
     private void initSite(Config config, JsonObject object) {
         String spider = Json.safeString(object, "spider");
-        BaseLoader.get().parseJar(spider, true);
+        // 后台预加载可选插件且失败不阻断配置。
+        BaseLoader.get().prepareJar(spider, true);
         setSites(Json.safeListElement(object, "sites").stream().map(e -> Site.objectFrom(e, spider)).distinct().collect(Collectors.toCollection(ArrayList::new)));
         Map<String, Site> items = Site.findAll().stream().collect(Collectors.toMap(Site::getKey, Function.identity()));
         getSites().forEach(site -> site.sync(items.get(site.getKey())));

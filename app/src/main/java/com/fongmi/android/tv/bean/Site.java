@@ -300,6 +300,7 @@ public class Site implements Parcelable {
     }
 
     public Site recent() {
+        // 记录当前来源并保留按需解析的插件地址。
         BaseLoader.get().setRecent(getKey(), getApi(), getJar());
         return this;
     }

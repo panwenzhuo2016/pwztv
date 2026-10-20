@@ -8,6 +8,7 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Live;
 import com.fongmi.android.tv.bean.Site;
 import com.github.catvod.crawler.Spider;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.crawler.SpiderNull;
 import com.github.catvod.utils.Util;
 
@@ -24,6 +25,7 @@ public class BaseLoader {
     private final JarLoader jarLoader;
     private final PyLoader pyLoader;
     private final JsLoader jsLoader;
+    private volatile String recentJar;
 
     private static class Loader {
         static volatile BaseLoader INSTANCE = new BaseLoader();
@@ -65,13 +67,17 @@ public class BaseLoader {
         return new SpiderNull();
     }
 
+    // 记录当前来源并保留按需解析的插件地址。
     public void setRecent(String key, String api, String jar) {
         boolean js = api.contains(".js");
         boolean py = api.contains(".py");
         boolean csp = api.startsWith("csp_");
         if (js) jsLoader.setRecent(key);
         else if (py) pyLoader.setRecent(key);
-        else if (csp) jarLoader.setRecent(Util.md5(jar));
+        else if (csp) {
+            recentJar = jar;
+            jarLoader.setRecent(Util.md5(jar));
+        }
     }
 
     public Object[] proxy(Map<String, String> params) throws Exception {
@@ -81,21 +87,48 @@ public class BaseLoader {
         return jarLoader.proxy(params);
     }
 
+    // 按需加载插件并记录当前解析来源。
     public void parseJar(String jar, boolean recent) {
         if (TextUtils.isEmpty(jar)) return;
         jarLoader.parseJar(Util.md5(jar), jar);
-        if (recent) jarLoader.setRecent(Util.md5(jar));
+        if (recent) {
+            recentJar = jar;
+            jarLoader.setRecent(Util.md5(jar));
+        }
+    }
+
+    // 后台预加载可选插件且失败不阻断配置。
+    public void prepareJar(String jar, boolean recent) {
+        if (TextUtils.isEmpty(jar)) return;
+        String key = Util.md5(jar);
+        if (recent) {
+            recentJar = jar;
+            jarLoader.setRecent(key);
+        }
+        App.execute(() -> {
+            try {
+                jarLoader.parseJar(key, jar);
+            } catch (RuntimeException error) {
+                SpiderDebug.log("config", "source=%s optional plugin preload failed: %s", key, error.getClass().getSimpleName());
+            }
+        });
     }
 
     public DexClassLoader dex(String jar) {
         return jarLoader.dex(jar);
     }
 
+    // 使用插件解析前等待或重试对应插件加载。
     public JSONObject jsonExt(String key, LinkedHashMap<String, String> jxs, String url) throws Throwable {
+        // 按需加载插件并记录当前解析来源。
+        parseJar(recentJar, false);
         return jarLoader.jsonExt(key, jxs, url);
     }
 
+    // 使用插件混合解析前等待或重试插件加载。
     public JSONObject jsonExtMix(String flag, String key, String name, LinkedHashMap<String, HashMap<String, String>> jxs, String url) throws Throwable {
+        // 按需加载插件并记录当前解析来源。
+        parseJar(recentJar, false);
         return jarLoader.jsonExtMix(flag, key, name, jxs, url);
     }
 }

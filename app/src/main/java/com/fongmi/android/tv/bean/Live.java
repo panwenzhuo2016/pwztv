@@ -348,6 +348,7 @@ public class Live {
     }
 
     public Live recent() {
+        // 记录当前来源并保留按需解析的插件地址。
         BaseLoader.get().setRecent(getName(), getApi(), getJar());
         return this;
     }

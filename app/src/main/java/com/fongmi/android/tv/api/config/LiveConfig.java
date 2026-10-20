@@ -6,7 +6,6 @@ import android.text.TextUtils;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.Setting;
-import com.fongmi.android.tv.api.Decoder;
 import com.fongmi.android.tv.api.LiveParser;
 import com.fongmi.android.tv.api.loader.BaseLoader;
 import com.fongmi.android.tv.bean.Channel;
@@ -121,15 +120,18 @@ public class LiveConfig {
     public void load(Callback callback) {
         int id = taskId.incrementAndGet();
         if (future != null && !future.isDone()) future.cancel(true);
+        // 加载配置并为内置来源启用订阅聚合。
         future = App.submit(() -> loadConfig(id, config, callback));
         callback.start();
     }
 
+    // 加载配置并为内置来源启用订阅聚合。
     private void loadConfig(int id, Config config, Callback callback) {
         try {
             OkHttp.cancel(TAG);
             Server.get().start();
-            String json = Decoder.getJson(UrlUtil.convert(config.getUrl()), TAG);
+            // 统一读取内置资源与远程配置。
+            String json = BuiltinConfig.load(config.getUrl(), TAG);
             if (Json.isObj(json)) checkJson(id, config, callback, Json.parse(json).getAsJsonObject());
             else parseText(id, config, callback, json);
             if (taskId.get() == id && config.equals(this.config)) config.update();
@@ -171,6 +173,7 @@ public class LiveConfig {
         List<Depot> items = Depot.arrayFrom(object.getAsJsonArray("urls").toString());
         List<Config> configs = new ArrayList<>();
         for (Depot item : items) configs.add(Config.find(item, 1));
+        // 加载配置并为内置来源启用订阅聚合。
         loadConfig(id, this.config = configs.get(0), callback);
         Config.delete(config.getUrl());
     }
@@ -178,6 +181,7 @@ public class LiveConfig {
     private void parseConfig(int id, Config config, Callback callback, JsonObject object) {
         try {
             initList(object);
+            // 初始化直播入口且不等待可选插件下载。
             initLive(config, object);
             if (taskId.get() != id) return;
             if (callback != null) App.post(callback::success);
@@ -196,9 +200,11 @@ public class LiveConfig {
         setAds(Json.safeListString(object, "ads"));
     }
 
+    // 初始化直播入口且不等待可选插件下载。
     private void initLive(Config config, JsonObject object) {
         String spider = Json.safeString(object, "spider");
-        BaseLoader.get().parseJar(spider, false);
+        // 后台预加载可选插件且失败不阻断配置。
+        BaseLoader.get().prepareJar(spider, false);
         setLives(Json.safeListElement(object, "lives").stream().map(e -> Live.objectFrom(e, spider)).distinct().collect(Collectors.toCollection(ArrayList::new)));
         Map<String, Live> items = Live.findAll().stream().collect(Collectors.toMap(Live::getName, Function.identity()));
         getLives().forEach(live -> live.sync(items.get(live.getName())));

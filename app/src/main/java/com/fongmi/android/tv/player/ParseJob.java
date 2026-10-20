@@ -125,12 +125,14 @@ public class ParseJob implements ParseCallback {
     private void jsonExtend(String webUrl) throws Throwable {
         LinkedHashMap<String, String> jxs = new LinkedHashMap<>();
         for (Parse item : VodConfig.get().getParses()) if (item.getType() == 1) jxs.put(item.getName(), item.extUrl());
+        // 使用插件解析前等待或重试对应插件加载。
         checkResult(Result.fromObject(BaseLoader.get().jsonExt(parse.getUrl(), jxs, webUrl)));
     }
 
     private void jsonMix(String webUrl, String flag) throws Throwable {
         LinkedHashMap<String, HashMap<String, String>> jxs = new LinkedHashMap<>();
         for (Parse item : VodConfig.get().getParses()) jxs.put(item.getName(), item.mixMap());
+        // 使用插件混合解析前等待或重试插件加载。
         checkResult(Result.fromObject(BaseLoader.get().jsonExtMix(flag, parse.getUrl(), parse.getName(), jxs, webUrl)));
     }
 
