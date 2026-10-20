@@ -13,6 +13,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import androidx.viewbinding.ViewBinding;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Product;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
@@ -29,6 +30,7 @@ import com.fongmi.android.tv.ui.activity.VideoActivity;
 import com.fongmi.android.tv.ui.adapter.VodAdapter;
 import com.fongmi.android.tv.ui.base.BaseFragment;
 import com.fongmi.android.tv.ui.custom.CustomScroller;
+import com.fongmi.android.tv.ui.custom.HomeRefresh;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.StringMap;
@@ -38,6 +40,9 @@ import java.util.HashMap;
 
 public class TypeFragment extends BaseFragment implements CustomScroller.Callback, VodAdapter.OnClickListener, SwipeRefreshLayout.OnRefreshListener {
 
+    // 绑定主线程队列与首页刷新操作。
+    // 仅页面仍有效时同步首页来源与内容。
+    private final HomeRefresh mHomeRefresh = new HomeRefresh(App::post, this::refreshHome);
     private HashMap<String, String> mExtends;
     private FragmentTypeBinding mBinding;
     private CustomScroller mScroller;
@@ -115,6 +120,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
 
     @Override
     protected void initEvent() {
+        // 首页延后刷新，分类页面保持原有刷新。
         mBinding.swipeLayout.setOnRefreshListener(this);
         mBinding.recycler.addOnScrollListener(mScroller);
     }
@@ -137,8 +143,15 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
         mViewModel.action.observe(getViewLifecycleOwner(), result -> Notify.show(result.getMsg()));
     }
 
-    // 统一由首页刷新以同步自动换源后的页面。
+    // 将首页重建移出下拉动画的绘制回调。
     private void getHome() {
+        // 当前绘制结束后刷新，同帧重复请求合并。
+        mHomeRefresh.request();
+    }
+
+    // 仅页面仍有效时同步首页来源与内容。
+    private void refreshHome() {
+        if (!isAdded() || getView() == null) return;
         RefreshEvent.video();
     }
 
@@ -183,14 +196,24 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
     public void setFilter(String key, Value value) {
         if (value.isActivated()) mExtends.put(key, value.getV());
         else mExtends.remove(key);
+        // 首页延后刷新，分类页面保持原有刷新。
         onRefresh();
     }
 
+    // 首页延后刷新，分类页面保持原有刷新。
     @Override
     public void onRefresh() {
-        // 统一由首页刷新以同步自动换源后的页面。
+        // 将首页重建移出下拉动画的绘制回调。
         if (isHome()) getHome();
         else getVideo();
+    }
+
+    // 销毁页面时取消待执行的首页刷新。
+    @Override
+    public void onDestroyView() {
+        // 页面销毁时使未执行的刷新失效。
+        mHomeRefresh.cancel();
+        super.onDestroyView();
     }
 
     @Override
