@@ -23,6 +23,8 @@ import androidx.viewbinding.ViewBinding;
 import com.bumptech.glide.request.transition.Transition;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.api.source.SourceHealth;
+import com.fongmi.android.tv.api.source.LiveLineStore;
+import com.fongmi.android.tv.ui.dialog.LiveLineDialog;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.Setting;
@@ -150,6 +152,7 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
         setPadding(mBinding.recycler, true);
         mPlayers = Players.create(this);
         mObserveEpg = this::setEpg;
+        // 阻止已标记地址的迟到结果重新开始播放。
         mObserveUrl = this::start;
         mHides = new ArrayList<>();
         mR1 = this::hideControl;
@@ -178,7 +181,10 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
         mBinding.control.action.audio.setOnClickListener(this::onTrack);
         mBinding.control.action.video.setOnClickListener(this::onTrack);
         mBinding.control.action.home.setOnClickListener(view -> onHome());
-        mBinding.control.action.line.setOnClickListener(view -> onLine());
+        mBinding.control.action.line.setOnClickListener(view -> {
+            // 展示同频道线路并应用手动选择或跳过。
+            onLine();
+        });
         mBinding.control.action.scale.setOnClickListener(view -> onScale());
         mBinding.control.action.speed.setOnClickListener(view -> onSpeed());
         mBinding.control.action.config.setOnClickListener(view -> onConfig());
@@ -370,8 +376,20 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
         hideControl();
     }
 
+    // 展示同频道线路并应用手动选择或跳过。
     private void onLine() {
-        nextLine(false);
+        if (mChannel == null) return;
+        Channel channel = mChannel;
+        hideControl();
+        // 展示来源线路并支持标记与恢复错误内容。
+        LiveLineDialog.show(this, channel, index -> {
+            if (mChannel != channel) return;
+            if (index >= 0) channel.setLine(index);
+            mFailedLines.clear();
+            // 播放前避开用户标记并处理线路耗尽。
+            fetch();
+            setInfo();
+        });
     }
 
     private void onScale() {
@@ -595,6 +613,7 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
             setArtwork();
             showInfo();
             hideUI();
+            // 播放前避开用户标记并处理线路耗尽。
             fetch();
         }
     }
@@ -612,11 +631,13 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
     @Override
     public void onItemClick(EpgData item) {
         if (item.isSelected()) {
+            // 回看播放前避开内容不符的地址。
             fetch(item);
         } else if (mChannel.hasCatchup()) {
             mBinding.control.title.setText(getString(R.string.detail_title, mChannel.getShow(), item.getTitle()));
             Notify.show(getString(R.string.play_ready, item.getTitle()));
             mEpgDataAdapter.setSelected(item);
+            // 回看播放前避开内容不符的地址。
             fetch(item);
         }
     }
@@ -644,9 +665,11 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
         mBinding.widget.name.setText(mChannel.getShow());
         mBinding.control.title.setText(mChannel.getShow());
         mBinding.widget.namePip.setText(mChannel.getShow());
+        // 单线路也显示来源名称或线路编号。
         mBinding.widget.line.setText(mChannel.getLineText());
         mBinding.widget.number.setText(mChannel.getNumber());
         mBinding.widget.numberPip.setText(mChannel.getNumber());
+        // 单线路也保留标记与恢复入口。
         mBinding.widget.line.setVisibility(mChannel.getLineVisible());
         mBinding.control.action.line.setText(mBinding.widget.line.getText());
         mBinding.control.action.line.setVisibility(mBinding.widget.line.getVisibility());
@@ -671,16 +694,22 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
         if (mChannel != null && mChannel.getTvgId().equals(epg.getKey())) setEpg();
     }
 
+    // 回看播放前避开内容不符的地址。
     private void fetch(EpgData item) {
         if (mChannel == null) return;
+        // 确保当前线路未被标记且保留恢复入口。
+        if (!prepareLine()) return;
         mViewModel.getUrl(mChannel, item);
         mPlayers.clear();
         mPlayers.stop();
         hideUI();
     }
 
+    // 播放前避开用户标记并处理线路耗尽。
     private void fetch() {
         if (mChannel == null) return;
+        // 确保当前线路未被标记且保留恢复入口。
+        if (!prepareLine()) return;
         LiveConfig.get().setKeep(mChannel);
         mViewModel.getUrl(mChannel);
         mPlayers.clear();
@@ -688,8 +717,34 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
         showProgress();
     }
 
+    // 阻止已标记地址的迟到结果重新开始播放。
     private void start(Result result) {
+        // 获取设备共享的直播线路标记。
+        LiveLineStore store = LiveLineStore.get();
+        // 查询地址是否被用户标记为内容不符。
+        if (mChannel == null || store.isBlocked(mChannel.getCurrent())) return;
         mPlayers.start(result, false, getTimeout());
+    }
+
+    // 确保当前线路未被标记且保留恢复入口。
+    private boolean prepareLine() {
+        // 获取设备共享的直播线路标记。
+        LiveLineStore store = LiveLineStore.get();
+        // 查询地址是否被用户标记为内容不符。
+        if (!store.isBlocked(mChannel.getCurrent())) return true;
+        // 有限选择未被标记且符合条件的备用线路。
+        int next = store.next(mChannel.getUrls(), mChannel.getLine(), url -> true);
+        if (next >= 0) {
+            mChannel.setLine(next);
+            setInfo();
+            return true;
+        }
+        // 取消线路解析并使已排队的播放结果失效。
+        mViewModel.cancelUrl();
+        mPlayers.clear();
+        mPlayers.stop();
+        showError(getString(R.string.live_line_all_rejected));
+        return false;
     }
 
     private void checkControl() {
@@ -810,6 +865,7 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
                 setLive(getHome());
                 break;
             case PLAYER:
+                // 播放前避开用户标记并处理线路耗尽。
                 fetch();
                 break;
         }
@@ -889,14 +945,20 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
         // 记录失败并淘汰最早的状态。
         health.fail(mChannel.getCurrent());
         mFailedLines.add(mChannel.getCurrent());
-        // 有限遍历并跳过本轮已失败的线路。
-        int next = health.next(mChannel.getUrls(), mChannel.getLine(), mFailedLines);
+        // 获取设备共享的直播线路标记。
+        LiveLineStore store = LiveLineStore.get();
+        // 有限选择未被标记且符合条件的备用线路。
+        int next = store.next(mChannel.getUrls(), mChannel.getLine(), url -> {
+            // 冷却结束后允许重新尝试来源。
+            return !mFailedLines.contains(url) && health.available(url);
+        });
         if (next < 0) {
             showError(getString(R.string.source_exhausted));
             return;
         }
         mChannel.setLine(next);
         showInfo();
+        // 播放前避开用户标记并处理线路耗尽。
         fetch();
     }
 
@@ -947,14 +1009,23 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
         int position = mChannel.getData().getSelected() + 1;
         boolean hasNext = position <= current && position > 0;
         if (hasNext) onItemClick(mChannel.getData().getList().get(position));
+        // 播放前避开用户标记并处理线路耗尽。
         else fetch();
     }
 
+    // 手动轮换时避开用户标记的错误内容线路。
     private void nextLine(boolean show) {
         if (mChannel == null || mChannel.isOnly()) return;
-        mChannel.switchLine(true);
+        // 获取设备共享的直播线路标记。
+        LiveLineStore store = LiveLineStore.get();
+        // 有限选择未被标记且符合条件的备用线路。
+        int next = store.next(mChannel.getUrls(), mChannel.getLine(), url -> true);
+        if (next < 0) return;
+        mChannel.setLine(next);
+        mFailedLines.clear();
         if (show) showInfo();
         else setInfo();
+        // 播放前避开用户标记并处理线路耗尽。
         fetch();
     }
 

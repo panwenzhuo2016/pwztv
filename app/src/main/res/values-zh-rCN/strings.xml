@@ -204,4 +204,9 @@
     <string name="source_movies">国际 · 影视</string>
     <string name="source_sports">国际 · 体育</string>
     <string name="source_documentary">国际 · 纪录</string>
+    <string name="live_line_title">%1$s · 直播线路</string>
+    <string name="live_line_source">%1$s（%2$d/%3$d）</string>
+    <string name="live_line_rejected"> · 已跳过（点击恢复）</string>
+    <string name="live_line_reject">内容不符，跳过</string>
+    <string name="live_line_all_rejected">本频道线路均已标记为内容不符，可在线路列表中点选恢复</string>
 </resources>

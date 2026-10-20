@@ -282,8 +282,9 @@ public class Channel {
         this.selected = item.equals(this);
     }
 
+    // 单线路也保留标记与恢复入口。
     public int getLineVisible() {
-        return isOnly() ? View.GONE : View.VISIBLE;
+        return getUrls().isEmpty() ? View.GONE : View.VISIBLE;
     }
 
     public void loadLogo(ImageView view) {
@@ -316,8 +317,9 @@ public class Channel {
         return !getCatchup().isEmpty();
     }
 
+    // 单线路也显示来源名称或线路编号。
     public String getLineText() {
-        if (getUrls().size() <= 1) return "";
+        if (getUrls().isEmpty()) return "";
         String[] sp = getUrls().get(getLine()).split("\\$");
         if (sp.length > 1 && !sp[1].isEmpty()) return sp[1];
         return ResUtil.getString(R.string.live_line, getLine() + 1);

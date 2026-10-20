@@ -210,4 +210,9 @@
     <string name="source_movies">International · Movies / Series</string>
     <string name="source_sports">International · Sports</string>
     <string name="source_documentary">International · Documentary</string>
+    <string name="live_line_title">%1$s · Sources</string>
+    <string name="live_line_source">%1$s (%2$d/%3$d)</string>
+    <string name="live_line_rejected"> · Skipped (tap to restore)</string>
+    <string name="live_line_reject">Wrong content: skip</string>
+    <string name="live_line_all_rejected">All lines were marked as wrong content. Open Sources and select a line to restore it.</string>
 </resources>

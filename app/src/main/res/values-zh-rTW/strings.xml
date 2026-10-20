@@ -204,4 +204,9 @@
     <string name="source_movies">國際 · 影視</string>
     <string name="source_sports">國際 · 體育</string>
     <string name="source_documentary">國際 · 紀錄</string>
+    <string name="live_line_title">%1$s · 直播線路</string>
+    <string name="live_line_source">%1$s（%2$d/%3$d）</string>
+    <string name="live_line_rejected"> · 已跳過（點選恢復）</string>
+    <string name="live_line_reject">內容不符，跳過</string>
+    <string name="live_line_all_rejected">本頻道線路均已標記為內容不符，可在線路清單中點選恢復</string>
 </resources>

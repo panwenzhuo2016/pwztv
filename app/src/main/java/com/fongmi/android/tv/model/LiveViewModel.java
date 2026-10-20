@@ -78,6 +78,7 @@ public class LiveViewModel extends ViewModel {
     }
 
     public void getLive(Live item) {
+        // 按任务类型执行并隔离过期请求的结果。
         execute(TaskType.LIVE, () -> {
             // 优先聚合订阅并兼容单一直播配置。
             LiveParser.start(item.recent());
@@ -88,6 +89,7 @@ public class LiveViewModel extends ViewModel {
     }
 
     public void getXml(Live item) {
+        // 按任务类型执行并隔离过期请求的结果。
         execute(TaskType.XML, () -> item.getEpgXml().stream().anyMatch(url -> parseXml(item, url)));
     }
 
@@ -103,6 +105,7 @@ public class LiveViewModel extends ViewModel {
     public void getEpg(Channel item) {
         String date = formatDate.format(new Date());
         String url = item.getEpg().replace("{date}", date);
+        // 按任务类型执行并隔离过期请求的结果。
         execute(TaskType.EPG, () -> {
             if (url.startsWith("http") && !item.getData().equal(date)) item.setData(Epg.objectFrom(OkHttp.string(url), item.getTvgId(), formatTime));
             return item.getData().selected();
@@ -110,6 +113,7 @@ public class LiveViewModel extends ViewModel {
     }
 
     public void getUrl(Channel item) {
+        // 按任务类型执行并隔离过期请求的结果。
         execute(TaskType.URL, () -> {
             Source.get().stop();
             // 使用当前线路独立参数生成播放请求。
@@ -120,12 +124,27 @@ public class LiveViewModel extends ViewModel {
     }
 
     public void getUrl(Channel item, EpgData data) {
+        // 按任务类型执行并隔离过期请求的结果。
         execute(TaskType.URL, () -> {
             Source.get().stop();
             // 使用当前线路独立参数生成播放请求。
             Result result = item.result();
             result.setUrl(item.getCatchup().format(Source.get().fetch(result), data));
             return result;
+        });
+    }
+
+    // 取消线路解析并使已排队的播放结果失效。
+    public void cancelUrl() {
+        taskIds.get(TaskType.URL).incrementAndGet();
+        Future<?> future = futures.remove(TaskType.URL);
+        if (future != null) future.cancel(true);
+    }
+
+    // 在主线程再次核验请求后交付播放结果。
+    private void postUrl(int requestId, Result result) {
+        App.post(() -> {
+            if (taskIds.get(TaskType.URL).get() == requestId) url.setValue(result);
         });
     }
 
@@ -145,6 +164,7 @@ public class LiveViewModel extends ViewModel {
         LiveConfig.get().setKeep(item.getGroups());
     }
 
+    // 按任务类型执行并隔离过期请求的结果。
     private <T> void execute(TaskType type, Callable<T> callable) {
         Future<?> oldFuture = futures.get(type);
         AtomicInteger taskId = taskIds.get(type);
@@ -159,14 +179,17 @@ public class LiveViewModel extends ViewModel {
                 if (taskId.get() != currentId) return;
                 if (type == TaskType.EPG) epg.postValue((Epg) result);
                 else if (type == TaskType.LIVE) live.postValue((Live) result);
-                else if (type == TaskType.URL) url.postValue((Result) result);
+                // 在主线程再次核验请求后交付播放结果。
+                else if (type == TaskType.URL) postUrl(currentId, (Result) result);
                 else if (type == TaskType.XML) xml.postValue((Boolean) result);
             } catch (CancellationException ignored) {
             } catch (Throwable e) {
                 if (taskId.get() != currentId) return;
-                if (e.getCause() instanceof ExtractException) url.postValue(Result.error(e.getCause().getMessage()));
+                // 在主线程再次核验请求后交付播放结果。
+                if (type == TaskType.URL && e.getCause() instanceof ExtractException) postUrl(currentId, Result.error(e.getCause().getMessage()));
                 else if (type == TaskType.LIVE) live.postValue(new Live());
-                else if (type == TaskType.URL) url.postValue(new Result());
+                // 在主线程再次核验请求后交付播放结果。
+                else if (type == TaskType.URL) postUrl(currentId, new Result());
                 else if (type == TaskType.EPG) epg.postValue(new Epg());
                 else if (type == TaskType.XML) xml.postValue(false);
                 e.printStackTrace();
