@@ -2,6 +2,8 @@ plugins {
     id 'com.android.application'
 }
 
+def withPython = providers.gradleProperty('withPython').orElse('false').get().toBoolean()
+
 android {
     namespace 'com.fongmi.android.tv'
 
@@ -18,6 +20,7 @@ android {
         targetSdk 28
         versionCode 519
         versionName "5.1.9"
+        buildConfigField 'boolean', 'PYTHON_ENABLED', withPython.toString()
         javaCompileOptions {
             annotationProcessorOptions {
                 arguments = ["room.schemaLocation": "$projectDir/schemas".toString(), "eventBusIndex": "com.fongmi.android.tv.event.EventIndex"]
@@ -47,6 +50,11 @@ android {
     buildFeatures {
         buildConfig true
         viewBinding true
+    }
+
+    sourceSets {
+        main.java.srcDir(withPython ? 'src/python/java' : 'src/noPython/java')
+        test.java.srcDir(withPython ? 'src/pythonTest/java' : 'src/noPythonTest/java')
     }
 
     buildTypes {
@@ -91,7 +99,7 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     implementation fileTree(dir: "libs", include: ["*.aar"])
     implementation project(':catvod')
-    implementation project(':chaquo')
+    if (withPython) implementation project(':chaquo')
     implementation project(':quickjs')
     implementation 'androidx.appcompat:appcompat:1.7.1'
     implementation 'androidx.core:core-splashscreen:1.2.0'

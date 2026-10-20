@@ -354,6 +354,7 @@ public class Live {
     }
 
     public Spider spider() {
+        // 按脚本类型分派到对应片源加载器。
         return BaseLoader.get().getSpider(getName(), getApi(), getExt(), getJar());
     }
 

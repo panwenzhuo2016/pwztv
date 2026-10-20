@@ -11,20 +11,47 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "Release"
 SIGNING = ROOT / ".signing"
 MODES = ("mobile", "leanback")
+PYTHON_NATIVE_PREFIXES = (
+    "libpython", "libchaquopy", "libcrypto_python", "libssl_python", "libsqlite3_python",
+    "libcrypto_chaquopy", "libssl_chaquopy", "libsqlite3_chaquopy",
+)
 
 
-# 解析参数并选择本次发布架构。
-def build_options():
+# 解析参数并选择架构与Python支持。
+def build_options(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--include-32bit", action="store_true", help="also build ARM 32-bit APKs")
+    parser.add_argument("--with-python", action="store_true", help="include support for Python script sources")
     parser.add_argument("--no-pause", action="store_true", help=argparse.SUPPRESS)
-    options = parser.parse_args()
-    return ("arm64_v8a", "armeabi_v7a") if options.include_32bit else ("arm64_v8a",)
+    options = parser.parse_args(argv)
+    options.abis = ("arm64_v8a", "armeabi_v7a") if options.include_32bit else ("arm64_v8a",)
+    return options
+
+
+# 显式选择Python依赖避免复用其他构建设置。
+def gradle_command(options):
+    tasks = [f":app:assemble{mode.capitalize()}{abi.capitalize()}Release" for mode in MODES for abi in options.abis]
+    return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", "gradlew.bat", *tasks,
+            f"-PwithPython={str(options.with_python).lower()}", "--console=plain", "--stacktrace"]
+
+
+# 反查安装包中的Python组件与构建选项一致。
+def verify_python_contents(apk, enabled):
+    with zipfile.ZipFile(apk) as archive:
+        names = archive.namelist()
+    python_assets = any(name.startswith("assets/chaquopy/") for name in names)
+    python_native = any(name.startswith("lib/") and name.rsplit("/", 1)[-1].startswith(PYTHON_NATIVE_PREFIXES)
+                        for name in names)
+    if enabled and not (python_assets and python_native):
+        raise RuntimeError(f"Python-enabled APK is missing runtime components: {apk.name}")
+    if not enabled and (python_assets or python_native):
+        raise RuntimeError(f"Default APK unexpectedly contains Python runtime components: {apk.name}")
 
 
 # 执行外部工具并保留失败退出码。
@@ -116,10 +143,10 @@ def release_apks(expected):
 
 # 构建并签名校验所选安卓发布包。
 def main():
-    # 解析参数并选择本次发布架构。
-    abis = build_options()
+    # 解析参数并选择架构与Python支持。
+    options = build_options()
+    abis = options.abis
     expected = {f"{mode}-{abi}.apk" for mode in MODES for abi in abis}
-    tasks = [f":app:assemble{mode.capitalize()}{abi.capitalize()}Release" for mode in MODES for abi in abis]
     if os.name != "nt":
         raise RuntimeError("Run build_all.bat on Windows.")
     env = dict(os.environ)
@@ -134,15 +161,19 @@ def main():
     env.update(ANDROID_HOME=str(sdk), ANDROID_SDK_ROOT=str(sdk))
     # 创建或复用本地长期签名密钥。
     keystore, alias, env = signing_environment(keytool, env)
+    print(f"Python source support: {'enabled' if options.with_python else 'disabled'}", flush=True)
+    # 显式选择Python依赖避免复用其他构建设置。
+    command = gradle_command(options)
     # 执行外部工具并保留失败退出码。
-    run([os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", "gradlew.bat",
-         *tasks, "--console=plain", "--stacktrace"], env)
+    run(command, env)
     # 按构建元数据校验本次发布产物。
     packages = release_apks(expected)
     OUTPUT.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".staging-", dir=OUTPUT) as staging:
         staged = Path(staging)
         for name, source in sorted(packages.items()):
+            # 反查安装包中的Python组件与构建选项一致。
+            verify_python_contents(source, options.with_python)
             # 执行外部工具并保留失败退出码。
             run([
                 java, "-jar", signer, "sign", "--ks", keystore, "--ks-key-alias", alias,

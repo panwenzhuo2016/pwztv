@@ -93,6 +93,7 @@ public class VodConfig {
         wall = null;
         parse = null;
         sites = null;
+        // 清理各类片源的加载缓存。
         BaseLoader.get().clear();
         return this;
     }

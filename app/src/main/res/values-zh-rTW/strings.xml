@@ -124,6 +124,7 @@
     <string name="dialog_config_url">請輸入網址…</string>
 
     <!-- Error -->
+    <string name="error_python_disabled">此版本不支援此類型片源，請切換其他片源</string>
     <string name="error_config_get">配置取得失敗</string>
     <string name="error_config_parse">配置解析失敗</string>
     <string name="error_play_next">已經是最後一集了！</string>

@@ -20,6 +20,8 @@ dependencyResolutionManagement {
 }
 include ':app'
 include ':catvod'
-include ':chaquo'
+def withPython = providers.gradleProperty('withPython').orElse('false').get()
+if (!(withPython in ['true', 'false'])) throw new GradleException('withPython must be true or false')
+if (withPython.toBoolean()) include ':chaquo'
 include ':quickjs'
 rootProject.name = "TV"

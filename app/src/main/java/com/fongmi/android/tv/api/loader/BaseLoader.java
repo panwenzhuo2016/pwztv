@@ -28,6 +28,7 @@ public class BaseLoader {
     private volatile String recentJar;
 
     private static class Loader {
+        // 初始化片源加载入口且不提前启动Python。
         static volatile BaseLoader INSTANCE = new BaseLoader();
     }
 
@@ -35,24 +36,30 @@ public class BaseLoader {
         return Loader.INSTANCE;
     }
 
+    // 初始化片源加载入口且不提前启动Python。
     private BaseLoader() {
         jarLoader = new JarLoader();
+        // 创建Python片源缓存且暂不启动运行时。
         pyLoader = new PyLoader();
         jsLoader = new JsLoader();
     }
 
+    // 清理各类片源的加载缓存。
     public void clear() {
         App.execute(() -> {
             jarLoader.clear();
+            // 清理已创建的Python片源实例。
             pyLoader.clear();
             jsLoader.clear();
         });
     }
 
+    // 按脚本类型分派到对应片源加载器。
     public Spider getSpider(String key, String api, String ext, String jar) {
         boolean js = api.contains(".js");
         boolean py = api.contains(".py");
         boolean csp = api.startsWith("csp_");
+        // 获取Python片源或返回不可用结果。
         if (py) return pyLoader.getSpider(key, api, ext);
         else if (js) return jsLoader.getSpider(key, api, ext, jar);
         else if (csp) return jarLoader.getSpider(key, api, ext, jar);
@@ -73,6 +80,7 @@ public class BaseLoader {
         boolean py = api.contains(".py");
         boolean csp = api.startsWith("csp_");
         if (js) jsLoader.setRecent(key);
+        // 记录最近使用的Python片源。
         else if (py) pyLoader.setRecent(key);
         else if (csp) {
             recentJar = jar;
@@ -80,9 +88,11 @@ public class BaseLoader {
         }
     }
 
+    // 按来源分派片源代理请求。
     public Object[] proxy(Map<String, String> params) throws Exception {
         if (params.containsKey("siteKey")) return getSpider(params.get("siteKey")).proxy(params);
         if ("js".equals(params.get("do"))) return jsLoader.proxy(params);
+        // 处理最近使用的Python片源代理请求。
         if ("py".equals(params.get("do"))) return pyLoader.proxy(params);
         return jarLoader.proxy(params);
     }

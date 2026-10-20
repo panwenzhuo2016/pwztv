@@ -2,9 +2,11 @@
 
 ### Windows 一键打包
 
-双击根目录 `build_all.bat`，或在终端运行它。需要 JDK 17 或更新版本、Python 3.10、Android SDK Platform 36.1 和 Build-Tools 35.0.0。通过 `ANDROID_HOME` 环境变量或 `local.properties` 中的 `sdk.dir` 指定 SDK；也支持项目根目录的 `.android-sdk`。首次构建需联网下载 Gradle、依赖及 Python 包。
+双击根目录 `build_all.bat`，或在终端运行它。需要 JDK 17 或更新版本、Python 3.10、Android SDK Platform 36.1 和 Build-Tools 35.0.0。电脑上的 Python 用于执行打包脚本，与 APK 是否携带 Python 运行时无关。通过 `ANDROID_HOME` 环境变量或 `local.properties` 中的 `sdk.dir` 指定 SDK；也支持项目根目录的 `.android-sdk`。首次构建需联网下载 Gradle 和依赖，启用 Python 片源支持时另需下载 Python 包。
 
 默认只构建手机、电视两种 **64 位**安装包。需要同时构建 32 位时运行 `build_all.bat --include-32bit`；无人值守可追加 `--no-pause`，参数顺序不限。
+
+默认 APK **不携带 Python 运行时**，保留当前全部片源配置和 Java、JavaScript、直接采集接口及直播能力。现有随包配置没有直接声明 Python 片源；远程 Java 插件核心受保护，移除 Python 后仍需抽样验证插件播放。以后需要 Python 脚本源，可运行 `build_all.bat --with-python`，也可组合 `--include-32bit`。直接使用 Gradle 时对应 `-PwithPython=true`，默认值为 `false`。完整版本仅在首次使用 Python 源时启动运行时。默认版本遇到 Python 源会提示当前版本不支持该类型片源，其他来源继续正常加载。脚本在签名前检查 APK 内容，防止 Python 组件遗漏或误带入默认包；两种构建使用相同输出文件名，后一次成功构建会覆盖同架构旧包。
 
 脚本构建启用代码与资源裁剪的 Release 版本，逐个签名并校验成功后，集中输出到根目录 `Release`：
 
