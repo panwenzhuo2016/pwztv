@@ -509,10 +509,16 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
 
     // 显示播放器异常并记录屏幕错误详情。
     private void showError(String text) {
+        // 显示当前错误并记录其原始异常。
+        showError(text, null);
+    }
+
+    // 显示当前错误并记录其原始异常。
+    private void showError(String text, Throwable error) {
         mBinding.widget.error.setVisibility(View.VISIBLE);
         mBinding.widget.error.setText(text);
-        // 实际显示异常时保留原始信息和显示调用链。
-        DiagnosticLog.visible("live-screen", text, true);
+        // 优先记录事件原始异常并兼容插件文字匹配。
+        DiagnosticLog.visible("live-screen", text, true, error);
         hideProgress();
     }
 
@@ -931,11 +937,14 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
+    // 显示原始错误并沿用直播恢复流程。
     public void onErrorEvent(ErrorEvent event) {
         if (!event.getTag().equals(tag)) return;
         Track.delete(mPlayers.getUrl());
-        // 显示播放器异常并记录屏幕错误详情。
-        showError(event.getMsg());
+        // 获取当前事件携带的原始异常。
+        Throwable error = event.getError();
+        // 显示当前错误并记录其原始异常。
+        showError(event.getMsg(), error);
         mPlayers.resetTrack();
         mPlayers.reset();
         mPlayers.stop();

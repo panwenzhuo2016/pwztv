@@ -10,6 +10,7 @@ public class ErrorEvent {
     private final String tag;
     private final Type type;
     private String msg;
+    private final Throwable error;
 
     public static void url(String tag) {
         EventBus.getDefault().post(new ErrorEvent(tag, Type.URL));
@@ -35,15 +36,35 @@ public class ErrorEvent {
         EventBus.getDefault().post(new ErrorEvent(tag, Type.EXTRACT, msg));
     }
 
+    // 传递屏幕提示及其原始异常。
+    public static void extract(String tag, String msg, Throwable error) {
+        // 保留事件对应的原始异常供显示时记录。
+        EventBus.getDefault().post(new ErrorEvent(tag, Type.EXTRACT, msg, error));
+    }
+
     public ErrorEvent(String tag, Type type) {
         this.type = type;
         this.tag = tag;
+        this.error = null;
     }
 
+    // 兼容没有原始异常的错误提示。
     public ErrorEvent(String tag, Type type, String msg) {
+        // 保留事件对应的原始异常供显示时记录。
+        this(tag, type, msg, null);
+    }
+
+    // 保留事件对应的原始异常供显示时记录。
+    public ErrorEvent(String tag, Type type, String msg, Throwable error) {
         this.type = type;
         this.tag = tag;
         this.msg = msg;
+        this.error = error;
+    }
+
+    // 获取当前事件携带的原始异常。
+    public Throwable getError() {
+        return error;
     }
 
     public Type getType() {

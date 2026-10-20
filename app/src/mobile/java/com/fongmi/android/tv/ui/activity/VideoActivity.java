@@ -622,11 +622,13 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
     }
 
     @Override
+    // 启动播放并保留启动失败的原始异常。
     public void onItemClick(Result result) {
         try {
             mPlayers.start(result, isUseParse(), getSite().isChangeable() ? getSite().getTimeout() : -1);
         } catch (Exception e) {
-            ErrorEvent.extract(tag, e.getMessage());
+            // 传递屏幕提示及其原始异常。
+            ErrorEvent.extract(tag, e.getMessage(), e);
             e.printStackTrace();
         }
     }
@@ -996,10 +998,16 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
 
     // 显示播放器异常并记录屏幕错误详情。
     private void showError(String text) {
+        // 显示当前错误并记录其原始异常。
+        showError(text, null);
+    }
+
+    // 显示当前错误并记录其原始异常。
+    private void showError(String text, Throwable error) {
         mBinding.widget.error.setVisibility(View.VISIBLE);
         mBinding.widget.error.setText(text);
-        // 实际显示异常时保留原始信息和显示调用链。
-        DiagnosticLog.visible("vod-screen", text, true);
+        // 优先记录事件原始异常并兼容插件文字匹配。
+        DiagnosticLog.visible("vod-screen", text, true, error);
         hideProgress();
     }
 
@@ -1346,13 +1354,15 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
-    // 保存失败前的进度并启动自动恢复。
+    // 显示原始错误并保存进度启动自动恢复。
     public void onErrorEvent(ErrorEvent event) {
         if (!event.getTag().equals(tag)) return;
         mBinding.swipeLayout.setEnabled(true);
         Track.delete(mPlayers.getUrl());
-        // 显示播放器异常并记录屏幕错误详情。
-        showError(event.getMsg());
+        // 获取当前事件携带的原始异常。
+        Throwable error = event.getError();
+        // 显示当前错误并记录其原始异常。
+        showError(event.getMsg(), error);
         mClock.setCallback(null);
         if (mHistory != null) {
             // 保存换站前集数与内存播放进度。

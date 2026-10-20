@@ -662,12 +662,12 @@ public class Players implements Player.Listener, ParseCallback {
         initTrack = true;
     }
 
-    // 记录播放器异常并沿用原有恢复流程。
+    // 恢复播放或传递屏幕提示及其原始异常。
     @Override
     public void onPlayerError(@NonNull PlaybackException e) {
         Logger.t(TAG).e(e, "tag=%s,key=%s,code=%s", tag, getKey(), e.errorCode);
-        // 展示实际HTTP状态码便于定位失效来源。
-        if (++retry > 2) ErrorEvent.extract(tag, provider.get(e));
+        // 传递屏幕提示及其原始异常。
+        if (++retry > 2) ErrorEvent.extract(tag, provider.get(e), e);
         else switch (e.errorCode) {
             case PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW:
                 seekToDefaultPosition();
@@ -685,8 +685,8 @@ public class Players implements Player.Listener, ParseCallback {
                 setFormat(ExoUtil.getMimeType(e.errorCode));
                 break;
             default:
-                // 展示实际HTTP状态码便于定位失效来源。
-                ErrorEvent.extract(tag, provider.get(e));
+                // 传递屏幕提示及其原始异常。
+                ErrorEvent.extract(tag, provider.get(e), e);
                 break;
         }
     }

@@ -120,10 +120,22 @@ public final class DiagnosticLog implements LogAdapter {
 
     // 实际显示异常时保留原始信息和显示调用链。
     public static void visible(String tag, String message, boolean error) {
+        // 优先记录事件原始异常并兼容插件文字匹配。
+        visible(tag, message, error, null);
+    }
+
+    // 优先记录事件原始异常并兼容插件文字匹配。
+    public static void visible(String tag, String message, boolean error, Throwable cause) {
         DiagnosticLog value = instance;
         if (value == null || message == null || message.isBlank()) return;
-        // 实际显示时取出堆栈，避免后台误记完整日志。
-        String details = value.screenErrors.take(message);
+        String details;
+        if (cause != null) {
+            // 序列化原始堆栈且不忽略域名解析异常。
+            details = ScreenErrorContext.stack(cause);
+        } else {
+            // 实际显示时取出堆栈，避免后台误记完整日志。
+            details = value.screenErrors.take(message);
+        }
         // 识别屏幕错误提示并排除普通成功通知。
         if (!error && details == null && !DiagnosticError.isPopupError(message)) return;
         String original = message + "\n" + (details == null ? "Original exception unavailable; display call site follows.\n" : details);
