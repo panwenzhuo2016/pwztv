@@ -67,6 +67,7 @@ public class SearchTask implements Callable<Result> {
             if (hasPage) params.put("pg", page);
             String searchContent = model.call(site, params);
             SpiderDebug.log("search", "site=%s,keyword=%s,quick=%s,page=%s\n%s", site.getName(), keyword, quick, page, searchContent.trim());
+            // 为搜索等请求按需补全影片详情。
             Result result = model.fetchPic(site, Result.fromType(site.getType(), searchContent));
             for (Vod vod : result.getList()) vod.setSite(site);
             return result;

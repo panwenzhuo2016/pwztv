@@ -132,10 +132,14 @@ public class VodFragment extends BaseFragment implements ConfigCallback, SiteCal
 
     private void setViewModel() {
         mViewModel = new ViewModelProvider(this).get(SiteViewModel.class);
+        // 同步自动换源后的标题并显示首页加载结果。
         mViewModel.result.observe(getViewLifecycleOwner(), this::setAdapter);
     }
 
+    // 同步自动换源后的标题并显示首页加载结果。
     private void setAdapter(Result result) {
+        setTitle();
+        if (result.hasMsg()) Notify.show(result.getMsg());
         mAdapter.addAll(mResult = result);
         mBinding.pager.getAdapter().notifyDataSetChanged();
         setFabVisible(0);
@@ -218,6 +222,7 @@ public class VodFragment extends BaseFragment implements ConfigCallback, SiteCal
         showProgress();
         setFabVisible(0);
         mAdapter.clear();
+        // 首页单源最多等待五秒并自动选择可用来源。
         mViewModel.homeContent();
         mBinding.pager.setAdapter(new PageAdapter(getChildFragmentManager()));
     }

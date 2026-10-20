@@ -23,6 +23,7 @@ import com.fongmi.android.tv.bean.Value;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.databinding.FragmentTypeBinding;
 import com.fongmi.android.tv.model.SiteViewModel;
+import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.ui.activity.SearchActivity;
 import com.fongmi.android.tv.ui.activity.VideoActivity;
 import com.fongmi.android.tv.ui.adapter.VodAdapter;
@@ -136,8 +137,9 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
         mViewModel.action.observe(getViewLifecycleOwner(), result -> Notify.show(result.getMsg()));
     }
 
+    // 统一由首页刷新以同步自动换源后的页面。
     private void getHome() {
-        mAdapter.clear(() -> mViewModel.homeContent());
+        RefreshEvent.video();
     }
 
     private void getVideo() {
@@ -186,6 +188,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
 
     @Override
     public void onRefresh() {
+        // 统一由首页刷新以同步自动换源后的页面。
         if (isHome()) getHome();
         else getVideo();
     }

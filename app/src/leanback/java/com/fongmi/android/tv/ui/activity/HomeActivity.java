@@ -119,6 +119,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         mBinding.progressLayout.showProgress();
         Updater.create().start(this);
         setRecyclerView();
+        // 同步自动换源后的标题并显示首页加载结果。
         setViewModel();
         setAdapter();
         initConfig();
@@ -167,9 +168,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         mBinding.recycler.setVerticalSpacing(ResUtil.dp2px(16));
     }
 
+    // 同步自动换源后的标题并显示首页加载结果。
     private void setViewModel() {
         mViewModel = new ViewModelProvider(this).get(SiteViewModel.class);
         mViewModel.result.observe(this, result -> {
+            setTitle();
+            if (result.hasMsg()) Notify.show(result.getMsg());
             mAdapter.remove("progress");
             addVideo(mResult = result);
             Cache.clear().put(result);
@@ -248,6 +252,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         boolean hasItem = gone && mAdapter.size() > index;
         if (hasItem) mAdapter.removeItems(index, mAdapter.size() - index);
         if (gone) mAdapter.add("progress");
+        // 首页单源最多等待五秒并自动选择可用来源。
         mViewModel.homeContent();
     }
 
