@@ -20,6 +20,7 @@ public final class RecentLogBuffer {
     public static final long RETENTION_MS = TimeUnit.HOURS.toMillis(1);
     public static final int MAX_CHARS = 96 * 1024;
     public static final int MAX_BUSINESS_CHARS = 100;
+    public static final int MAX_NETWORK_CHARS = 100;
     private static final int MAX_ENTRIES = 2048;
     private static final String TRUNCATED = " [truncated]";
     private static final long MERGE_MS = TimeUnit.MINUTES.toMillis(1);
@@ -107,6 +108,13 @@ public final class RecentLogBuffer {
         String text = tag.equals("aesX") || tag.equals("rsaX") ? "[crypto details omitted]" : message;
         // 遮蔽链接凭据与常见认证字段。
         text = redact(text);
+        // 仅将明确的网络异常链归为普通故障。
+        if (DiagnosticError.isRoutineNetwork(text)) {
+            // 摘出网络错误原因并附带原始业务上下文。
+            text = DiagnosticError.networkSummary(text);
+            // 按字符预算截断且保留完整字符。
+            text = shorten(text, MAX_NETWORK_CHARS);
+        }
         // 按字符预算截断且保留完整字符。
         if (!error) text = shorten(text, MAX_BUSINESS_CHARS);
         // 按字符预算截断且保留完整字符。

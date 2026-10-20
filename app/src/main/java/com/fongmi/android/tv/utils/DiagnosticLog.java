@@ -130,7 +130,7 @@ public final class DiagnosticLog implements LogAdapter {
             String logs = value.buffer.export();
             String report = "TV diagnostics\nversion=" + BuildConfig.VERSION_NAME + ",mode=" + BuildConfig.FLAVOR_mode
                     + ",abi=" + BuildConfig.FLAVOR_abi + "\nAndroid=" + Build.VERSION.RELEASE + ",device=" + Build.MANUFACTURER + " " + Build.MODEL
-                    + "\nLast 1h; errors and home summaries; duplicates merged within 1min; 96K limit; credentials redacted.\n"
+                    + "\nLast 1h; network errors <=100 chars; software error stacks; duplicates merged within 1min; 96K limit; credentials redacted.\n"
                     + (logs.isEmpty() ? "No diagnostic errors in this window.\n" : logs);
             App.post(() -> Util.copy(report));
         });

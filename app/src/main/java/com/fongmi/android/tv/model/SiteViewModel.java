@@ -102,7 +102,7 @@ public class SiteViewModel extends ViewModel {
                             // 使用捕获的来源和可取消连接加载首页。
                             return loadHome(site, connection);
                         } catch (Exception error) {
-                            // 保存首个真实异常及片源域名。
+                            // 优先保存程序异常并保留片源域名。
                             diagnostics.capture(site.getKey(), site.getApi(), error);
                             throw error;
                         }
@@ -126,7 +126,7 @@ public class SiteViewModel extends ViewModel {
             } catch (Exception e) {
                 // 汇总本轮各类来源失败次数。
                 diagnostics.failed(e.getClass().getSimpleName());
-                // 保存首个真实异常及片源域名。
+                // 优先保存程序异常并保留片源域名。
                 diagnostics.capture(initial.getKey(), initial.getApi(), e);
                 // 每轮只导出一次结果汇总及代表异常。
                 // 按异常标记写入脱敏诊断缓冲。
