@@ -24,7 +24,7 @@ public class DiagnosticErrorTest {
             // 将有限日志编码为可恢复的本地快照。
             JsonObject saved = JsonParser.parseString(buffer.encode()).getAsJsonArray().get(0).getAsJsonObject();
             String body = saved.get("text").getAsString().substring("home: ".length());
-            assertTrue(body, body.length() <= RecentLogBuffer.MAX_NETWORK_CHARS);
+            assertTrue(body, body.length() <= RecentLogBuffer.MAX_BACKGROUND_CHARS);
             assertTrue(body.startsWith("java.net." + type + ":"));
             assertFalse(body.contains("\n"));
             assertFalse(body.contains("okhttp3"));
@@ -65,7 +65,7 @@ public class DiagnosticErrorTest {
         assertFalse(report.contains("network.read"));
     }
 
-    // 验证程序异常包含网络原因时仍完整保留。
+    // 验证屏幕异常包含网络原因时仍完整保留。
     @Test public void preservesSoftwareErrorsAndUnknownIoFailures() {
         String network = "java.net.SocketException: Connection reset\n\tat network.read(Network.java:2)";
         String program = "java.lang.IllegalStateException: software bug\n\tat app.parse(Parser.java:4)\nCaused by: " + network;
@@ -80,8 +80,8 @@ public class DiagnosticErrorTest {
             assertFalse(error, DiagnosticError.isRoutineNetwork(error));
             // 注入时钟便于验证一小时保留边界。
             RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
-            // 区分业务摘要与异常并保留诊断信息。
-            buffer.append("error", error, true);
+            // 仅屏幕异常保留详情，后台正文最多百字。
+            buffer.append("error", error, true, true);
             // 将有限日志编码为可恢复的本地快照。
             String stored = JsonParser.parseString(buffer.encode()).getAsJsonArray().get(0).getAsJsonObject().get("text").getAsString();
             assertEquals("error: " + error, stored);

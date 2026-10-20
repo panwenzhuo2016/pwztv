@@ -39,10 +39,10 @@ public class Notify {
 
     // 保留原始异常供设置页复制诊断。
     public static String getError(int resId, Throwable e) {
-        // 按异常标记写入脱敏诊断缓冲。
-        DiagnosticLog.record("error", "res=" + resId + "\n" + android.util.Log.getStackTraceString(e), true);
-        if (TextUtils.isEmpty(e.getMessage())) return ResUtil.getString(resId);
-        return ResUtil.getString(resId) + "\n" + e.getMessage();
+        String message = ResUtil.getString(resId) + (TextUtils.isEmpty(e.getMessage()) ? "" : "\n" + e.getMessage());
+        // 先记后台摘要，短暂保存待显示的原始异常。
+        DiagnosticLog.prepareVisible(message, e);
+        return message;
     }
 
     public static void show(Notification notification) {
@@ -56,9 +56,10 @@ public class Notify {
 
     // 记录提示文字并显示原有用户提示。
     public static void show(String text) {
-        // 记录额外诊断事件且不依赖系统日志权限。
-        DiagnosticLog.record("notice", text);
-        if (!TextUtils.isEmpty(text)) get().makeText(text);
+        if (TextUtils.isEmpty(text)) return;
+        get().makeText(text);
+        // 实际显示异常时保留原始信息和显示调用链。
+        DiagnosticLog.visible("notice", text, false);
     }
 
     public static void progress(Context context) {

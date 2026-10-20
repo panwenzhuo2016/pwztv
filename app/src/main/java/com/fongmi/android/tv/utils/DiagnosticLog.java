@@ -25,6 +25,8 @@ public final class DiagnosticLog implements LogAdapter {
     private static final int MAX_FILE_BYTES = 2 * 1024 * 1024;
     private static volatile DiagnosticLog instance;
     private final RecentLogBuffer buffer;
+    // 注入时钟以限制待显示异常的保留时间。
+    private final ScreenErrorContext screenErrors = new ScreenErrorContext(System::currentTimeMillis);
     private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
     private final AtomicFile file;
     private String savedSnapshot;
@@ -101,6 +103,33 @@ public final class DiagnosticLog implements LogAdapter {
         value.buffer.append(tag, message, true);
     }
 
+    // 先记后台摘要，短暂保存待显示的原始异常。
+    public static void prepareVisible(String message, Throwable error) {
+        // 序列化原始堆栈且不忽略域名解析异常。
+        String details = ScreenErrorContext.stack(error);
+        // 按异常标记写入脱敏诊断缓冲。
+        record("error", message + "\n" + details, true);
+        DiagnosticLog value = instance;
+        if (value != null) {
+            // 短暂关联提示和原始堆栈，限制总容量。
+            value.screenErrors.remember(message, details);
+        }
+    }
+
+    // 实际显示异常时保留原始信息和显示调用链。
+    public static void visible(String tag, String message, boolean error) {
+        DiagnosticLog value = instance;
+        if (value == null || message == null || message.isBlank()) return;
+        // 实际显示时取出堆栈，避免后台误记完整日志。
+        String details = value.screenErrors.take(message);
+        // 仅保留异常并排除正常取消与业务数据。
+        if (!error && details == null && !RecentLogBuffer.useful("notice", message, false)) return;
+        // 序列化原始堆栈且不忽略域名解析异常。
+        String caller = ScreenErrorContext.stack(new Throwable("Screen display call site"));
+        // 仅屏幕异常保留详情，后台正文最多百字。
+        value.buffer.append(tag, message + "\n" + (details == null ? "" : details) + caller, true, true);
+    }
+
     // 在后台原子保存已变化的日志快照。
     private void save() {
         // 将有限日志编码为可恢复的本地快照。
@@ -130,7 +159,7 @@ public final class DiagnosticLog implements LogAdapter {
             String logs = value.buffer.export();
             String report = "TV diagnostics\nversion=" + BuildConfig.VERSION_NAME + ",mode=" + BuildConfig.FLAVOR_mode
                     + ",abi=" + BuildConfig.FLAVOR_abi + "\nAndroid=" + Build.VERSION.RELEASE + ",device=" + Build.MANUFACTURER + " " + Build.MODEL
-                    + "\nLast 1h; network errors <=100 chars; software error stacks; duplicates merged within 1min; 96K limit; credentials redacted.\n"
+                    + "\nLast 1h; background errors <=100 chars; screen errors keep details; duplicates merged within 1min; 96K limit; credentials redacted.\n"
                     + (logs.isEmpty() ? "No diagnostic errors in this window.\n" : logs);
             App.post(() -> Util.copy(report));
         });

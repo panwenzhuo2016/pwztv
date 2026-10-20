@@ -23,6 +23,7 @@ import com.android.cast.dlna.dmr.RenderState;
 import com.android.cast.dlna.dmr.RendererServiceBinder;
 import com.android.cast.dlna.dmr.service.RendererInterfaceKt;
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.utils.DiagnosticLog;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.Setting;
@@ -227,9 +228,12 @@ public class CastActivity extends BaseActivity implements CustomKeyDownVod.Liste
         Traffic.reset();
     }
 
+    // 显示播放器异常并记录屏幕错误详情。
     private void showError(String text) {
         mBinding.widget.error.setVisibility(View.VISIBLE);
         mBinding.widget.text.setText(text);
+        // 实际显示异常时保留原始信息和显示调用链。
+        DiagnosticLog.visible("cast-screen", text, true);
         hideProgress();
     }
 
@@ -349,6 +353,7 @@ public class CastActivity extends BaseActivity implements CustomKeyDownVod.Liste
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onErrorEvent(ErrorEvent event) {
         if (!event.getTag().equals(tag)) return;
+        // 显示播放器异常并记录屏幕错误详情。
         showError(event.getMsg());
         mPlayers.resetTrack();
         onStopped();

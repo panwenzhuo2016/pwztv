@@ -80,6 +80,7 @@ import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.KeyUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.DiagnosticLog;
 import com.fongmi.android.tv.utils.PartUtil;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
@@ -907,9 +908,12 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         Traffic.reset();
     }
 
+    // 显示播放器异常并记录屏幕错误详情。
     private void showError(String text) {
         mBinding.widget.error.setVisibility(View.VISIBLE);
         mBinding.widget.text.setText(text);
+        // 实际显示异常时保留原始信息和显示调用链。
+        DiagnosticLog.visible("vod-screen", text, true);
         hideProgress();
     }
 
@@ -1201,6 +1205,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     public void onErrorEvent(ErrorEvent event) {
         if (!event.getTag().equals(tag)) return;
         Track.delete(mPlayers.getUrl());
+        // 显示播放器异常并记录屏幕错误详情。
         showError(event.getMsg());
         mClock.setCallback(null);
         if (mHistory != null) {
@@ -1261,6 +1266,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
             if (mFallback.beginSearch()) initSearch(mBinding.name.getText().toString(), true);
             else {
                 setInitAuto(true);
+                // 显示播放器异常并记录屏幕错误详情。
                 showError(getString(R.string.source_exhausted));
             }
         } else if (isAutoMode() || force) nextSite();
@@ -1342,6 +1348,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         mFallback.fail(getKey(), getId());
         // 禁止重复尝试并限制本轮换站次数。
         if (!mFallback.allows(item.getSiteKey(), item.getId())) {
+            // 显示播放器异常并记录屏幕错误详情。
             showError(getString(R.string.source_exhausted));
             return;
         }

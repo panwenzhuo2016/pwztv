@@ -60,8 +60,8 @@ public class RecentLogBufferTest {
         String error = "java.lang.IllegalStateException: failed\n"
                 + "\tat parser.resolve(Parser.java:42)\n".repeat(180)
                 + "Caused by: org.json.JSONException: root cause at end";
-        // 区分业务摘要与异常并保留诊断信息。
-        buffer.append("player", error, true);
+        // 仅屏幕异常保留详情，后台正文最多百字。
+        buffer.append("player", error, true, true);
         // 导出按时间排列的最近一小时诊断文本。
         assertTrue(buffer.export().contains(error));
         // 注入时钟便于验证一小时保留边界。
@@ -73,7 +73,7 @@ public class RecentLogBufferTest {
         assertFalse(restored.export().contains("[truncated]"));
     }
 
-    // 验证旧快照过滤业务数据且保留可识别异常。
+    // 验证旧快照过滤业务并将后台异常限百字。
     @Test public void migratesOldBusinessAndExceptionEntries() {
         JsonArray old = new JsonArray();
         String error = "SpiderDebug: java.lang.Exception: failed\n\tat parser.run(Parser.java:1)\n" + "x".repeat(5000);
@@ -90,7 +90,11 @@ public class RecentLogBufferTest {
         // 将有限日志编码为可恢复的本地快照。
         JsonArray saved = JsonParser.parseString(buffer.encode()).getAsJsonArray();
         assertEquals(1, saved.size());
-        assertEquals(error, saved.get(0).getAsJsonObject().get("text").getAsString());
+        String stored = saved.get(0).getAsJsonObject().get("text").getAsString();
+        assertTrue(stored.startsWith("SpiderDebug: java.lang.Exception: failed"));
+        assertTrue(stored.substring("SpiderDebug: ".length()).length() <= RecentLogBuffer.MAX_BACKGROUND_CHARS);
+        assertTrue(stored.endsWith(" [truncated]"));
+        assertFalse(saved.get(0).getAsJsonObject().get("visible").getAsBoolean());
         assertTrue(saved.get(0).getAsJsonObject().get("error").getAsBoolean());
     }
 

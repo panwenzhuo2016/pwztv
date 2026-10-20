@@ -11,6 +11,11 @@ public final class DiagnosticError {
     private static final Set<String> WRAPPERS = Set.of("java.util.concurrent.ExecutionException",
             "java.util.concurrent.CompletionException");
 
+    // 识别提示中的异常文本而非普通操作提示。
+    public static boolean isException(String message) {
+        return message != null && (EXCEPTION.matcher(message).find() || message.contains("cannot be converted to"));
+    }
+
     // 仅将明确的网络异常链归为普通故障。
     public static boolean isRoutineNetwork(String message) {
         if (message == null) return false;

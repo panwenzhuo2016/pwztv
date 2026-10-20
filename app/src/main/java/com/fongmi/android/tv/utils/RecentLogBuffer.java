@@ -19,8 +19,7 @@ import java.util.regex.Pattern;
 public final class RecentLogBuffer {
     public static final long RETENTION_MS = TimeUnit.HOURS.toMillis(1);
     public static final int MAX_CHARS = 96 * 1024;
-    public static final int MAX_BUSINESS_CHARS = 100;
-    public static final int MAX_NETWORK_CHARS = 100;
+    public static final int MAX_BACKGROUND_CHARS = 100;
     private static final int MAX_ENTRIES = 2048;
     private static final String TRUNCATED = " [truncated]";
     private static final long MERGE_MS = TimeUnit.MINUTES.toMillis(1);
@@ -37,14 +36,16 @@ public final class RecentLogBuffer {
         final long time;
         final String text;
         final boolean error;
+        final boolean visible;
         long last;
         int count;
 
-        // 保存异常内容及重复计数时间范围。
-        Entry(long time, String text, boolean error, int count, long last) {
+        // 保存异常显示状态及重复计数时间范围。
+        Entry(long time, String text, boolean error, boolean visible, int count, long last) {
             this.time = time;
             this.text = text;
             this.error = error;
+            this.visible = visible;
             this.count = count;
             this.last = last;
         }
@@ -63,17 +64,24 @@ public final class RecentLogBuffer {
 
     // 区分业务摘要与异常并保留诊断信息。
     public synchronized void append(String tag, String message, boolean error) {
+        // 仅屏幕异常保留详情，后台正文最多百字。
+        append(tag, message, error, false);
+    }
+
+    // 仅屏幕异常保留详情，后台正文最多百字。
+    public synchronized void append(String tag, String message, boolean error, boolean visible) {
         if (message == null || message.isBlank()) return;
         String source = tag == null ? "app" : tag;
         // 识别旧日志中的异常标签与堆栈。
         error |= isError(source, message);
         // 统一整理摘要与异常并遮蔽敏感信息。
-        String text = prepare(source, message, error);
+        String text = prepare(source, message, visible);
         // 淘汰过期条目与超出容量的最早日志。
         trim();
         long now = clock.getAsLong();
         // 合并一分钟内内容相同的异常。
-        store(new Entry(now, text, error, 1, now));
+        // 保存异常显示状态及重复计数时间范围。
+        store(new Entry(now, text, error, visible, 1, now));
         // 淘汰过期条目与超出容量的最早日志。
         trim();
     }
@@ -82,19 +90,21 @@ public final class RecentLogBuffer {
     public static boolean useful(String tag, String message, boolean error) {
         if (message == null || message.isBlank() || CANCELED.matcher(message).find()) return false;
         // 识别旧日志中的异常标签与堆栈。
-        return error || isError(tag, message) || ("notice".equals(tag) && message.contains("cannot be converted to"));
+        // 识别提示中的异常文本而非普通操作提示。
+        return error || isError(tag, message) || ("notice".equals(tag) && DiagnosticError.isException(message));
     }
 
     // 合并一分钟内内容相同的异常。
     private void store(Entry entry) {
-        Entry previous = repeated.get(entry.text);
+        String key = entry.visible + "\0" + entry.text;
+        Entry previous = repeated.get(key);
         if (entry.error && previous != null && previous.error && entry.last - previous.time <= MERGE_MS) {
             previous.count = (int) Math.min(Integer.MAX_VALUE, (long) previous.count + entry.count);
             previous.last = Math.max(previous.last, entry.last);
             return;
         }
         entries.addLast(entry);
-        repeated.put(entry.text, entry);
+        repeated.put(key, entry);
         chars += entry.text.length();
     }
 
@@ -104,19 +114,17 @@ public final class RecentLogBuffer {
     }
 
     // 统一整理摘要与异常并遮蔽敏感信息。
-    private static String prepare(String tag, String message, boolean error) {
+    private static String prepare(String tag, String message, boolean visible) {
         String text = tag.equals("aesX") || tag.equals("rsaX") ? "[crypto details omitted]" : message;
         // 遮蔽链接凭据与常见认证字段。
         text = redact(text);
         // 仅将明确的网络异常链归为普通故障。
-        if (DiagnosticError.isRoutineNetwork(text)) {
+        if (!visible && DiagnosticError.isRoutineNetwork(text)) {
             // 摘出网络错误原因并附带原始业务上下文。
             text = DiagnosticError.networkSummary(text);
-            // 按字符预算截断且保留完整字符。
-            text = shorten(text, MAX_NETWORK_CHARS);
         }
         // 按字符预算截断且保留完整字符。
-        if (!error) text = shorten(text, MAX_BUSINESS_CHARS);
+        if (!visible) text = shorten(text, MAX_BACKGROUND_CHARS);
         // 按字符预算截断且保留完整字符。
         return shorten(tag + ": " + text, MAX_CHARS);
     }
@@ -135,7 +143,7 @@ public final class RecentLogBuffer {
         while (!entries.isEmpty() && (entries.peekFirst().time < cutoff || chars > MAX_CHARS || entries.size() > MAX_ENTRIES)) {
             Entry removed = entries.removeFirst();
             chars -= removed.text.length();
-            repeated.remove(removed.text, removed);
+            repeated.remove(removed.visible + "\0" + removed.text, removed);
         }
     }
 
@@ -163,6 +171,7 @@ public final class RecentLogBuffer {
             item.addProperty("time", entry.time);
             item.addProperty("text", entry.text);
             item.addProperty("error", entry.error);
+            item.addProperty("visible", entry.visible);
             item.addProperty("count", entry.count);
             item.addProperty("last", entry.last);
             array.add(item);
@@ -191,12 +200,14 @@ public final class RecentLogBuffer {
             // 仅保留异常并排除正常取消与业务数据。
             if (!useful(tag, message, error)) continue;
             error = true;
+            boolean visible = item.has("visible") && item.get("visible").getAsBoolean();
             int count = item.has("count") ? item.get("count").getAsInt() : 1;
             long last = item.has("last") ? item.get("last").getAsLong() : time;
             if (count < 1 || last < time || last > now) throw new IllegalArgumentException("Invalid diagnostic count or time");
             // 统一整理摘要与异常并遮蔽敏感信息。
             // 合并一分钟内内容相同的异常。
-            restored.store(new Entry(time, prepare(tag, message, error), error, count, last));
+            // 保存异常显示状态及重复计数时间范围。
+            restored.store(new Entry(time, prepare(tag, message, visible), error, visible, count, last));
         }
         entries.clear();
         entries.addAll(restored.entries);

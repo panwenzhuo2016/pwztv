@@ -94,6 +94,7 @@ import com.fongmi.android.tv.utils.Clock;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.DiagnosticLog;
 import com.fongmi.android.tv.utils.PiP;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
@@ -474,6 +475,7 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
     }
 
     private void showEmpty() {
+        // 显示播放器异常并记录屏幕错误详情。
         showError(getString(R.string.error_detail));
         mBinding.swipeLayout.setEnabled(true);
         mBinding.progressLayout.showEmpty();
@@ -992,9 +994,12 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         Traffic.reset();
     }
 
+    // 显示播放器异常并记录屏幕错误详情。
     private void showError(String text) {
         mBinding.widget.error.setVisibility(View.VISIBLE);
         mBinding.widget.error.setText(text);
+        // 实际显示异常时保留原始信息和显示调用链。
+        DiagnosticLog.visible("vod-screen", text, true);
         hideProgress();
     }
 
@@ -1346,6 +1351,7 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         if (!event.getTag().equals(tag)) return;
         mBinding.swipeLayout.setEnabled(true);
         Track.delete(mPlayers.getUrl());
+        // 显示播放器异常并记录屏幕错误详情。
         showError(event.getMsg());
         mClock.setCallback(null);
         if (mHistory != null) {
@@ -1405,6 +1411,7 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
             if (mFallback.beginSearch()) initSearch(mBinding.name.getText().toString(), true);
             else {
                 setInitAuto(true);
+                // 显示播放器异常并记录屏幕错误详情。
                 showError(getString(R.string.source_exhausted));
             }
         } else if (isAutoMode() || force) nextSite();
@@ -1478,6 +1485,7 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         mFallback.fail(getKey(), getId());
         // 禁止重复尝试并限制本轮换站次数。
         if (!mFallback.allows(item.getSiteKey(), item.getId())) {
+            // 显示播放器异常并记录屏幕错误详情。
             showError(getString(R.string.source_exhausted));
             return;
         }

@@ -67,6 +67,7 @@ import com.fongmi.android.tv.ui.presenter.GroupPresenter;
 import com.fongmi.android.tv.utils.Clock;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.DiagnosticLog;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Traffic;
 
@@ -484,9 +485,12 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
         Traffic.reset();
     }
 
+    // 显示播放器异常并记录屏幕错误详情。
     private void showError(String text) {
         mBinding.widget.error.setVisibility(View.VISIBLE);
         mBinding.widget.text.setText(text);
+        // 实际显示异常时保留原始信息和显示调用链。
+        DiagnosticLog.visible("live-screen", text, true);
         hideProgress();
     }
 
@@ -720,6 +724,7 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
         mViewModel.cancelUrl();
         mPlayers.clear();
         mPlayers.stop();
+        // 显示播放器异常并记录屏幕错误详情。
         showError(getString(R.string.live_line_all_rejected));
         return false;
     }
@@ -893,6 +898,7 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
     public void onErrorEvent(ErrorEvent event) {
         if (!event.getTag().equals(tag)) return;
         Track.delete(mPlayers.getUrl());
+        // 显示播放器异常并记录屏幕错误详情。
         showError(event.getMsg());
         mPlayers.resetTrack();
         mPlayers.reset();
@@ -917,6 +923,7 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
             return !mFailedLines.contains(url) && health.available(url);
         });
         if (next < 0) {
+            // 显示播放器异常并记录屏幕错误详情。
             showError(getString(R.string.source_exhausted));
             return;
         }
