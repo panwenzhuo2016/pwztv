@@ -118,10 +118,9 @@ public final class RecentLogBuffer {
         String text = tag.equals("aesX") || tag.equals("rsaX") ? "[crypto details omitted]" : message;
         // 遮蔽链接凭据与常见认证字段。
         text = redact(text);
-        // 仅将明确的网络异常链归为普通故障。
-        if (!visible && DiagnosticError.isRoutineNetwork(text)) {
-            // 摘出网络错误原因并附带原始业务上下文。
-            text = DiagnosticError.networkSummary(text);
+        if (!visible) {
+            // 优先保留播放源、错误码与主异常链根因。
+            text = DiagnosticError.backgroundSummary(text);
         }
         // 按字符预算截断且保留完整字符。
         if (!visible) text = shorten(text, MAX_BACKGROUND_CHARS);

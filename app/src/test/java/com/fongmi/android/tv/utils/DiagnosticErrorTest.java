@@ -9,6 +9,78 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class DiagnosticErrorTest {
+    // 验证长播放标识不会挤掉源名与底层原因。
+    @Test public void prioritizesPlaybackRootCauseWithinOneHundredCharacters() {
+        String prefix = "tag=19f4853c-7ce7-4c93-ad81-66cc4b4e15b2,key=热播@@@75204@@@1,code=3003 : ";
+        String error = prefix + "x1.k: Source error\n\tat player.start(Player.java:1)\n"
+                + "Caused by: java.io.IOException: request failed\n\tat network.read(Network.java:2)\n"
+                + "Caused by: androidx.media3.datasource.HttpDataSource$InvalidResponseCodeException: Response code: 403\n"
+                + "\tat http.read(Http.java:3)\n"
+                + "\tSuppressed: java.net.SocketTimeoutException: retry timed out\n"
+                + "\tCaused by: java.net.ConnectException: alternate route failed";
+        // 注入时钟便于验证一小时保留边界。
+        RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
+        // 区分业务摘要与异常并保留诊断信息。
+        buffer.append("f", error, true);
+        // 将有限日志编码为可恢复的本地快照。
+        String stored = JsonParser.parseString(buffer.encode()).getAsJsonArray().get(0).getAsJsonObject().get("text").getAsString();
+        assertTrue(stored, stored.contains("source=热播,code=3003"));
+        assertTrue(stored, stored.contains("Response code: 403"));
+        assertFalse(stored.contains("19f4853c"));
+        assertFalse(stored.contains("75204"));
+        assertFalse(stored.contains("alternate route"));
+        assertTrue(stored.substring("f: ".length()).length() <= RecentLogBuffer.MAX_BACKGROUND_CHARS);
+        // 注入时钟便于验证一小时保留边界。
+        RecentLogBuffer restored = new RecentLogBuffer(() -> 10_000_000);
+        // 恢复仍在一小时范围内的日志快照。
+        restored.restore(buffer.encode());
+        // 导出按时间排列的最近一小时诊断文本。
+        assertEquals(buffer.export(), restored.export());
+    }
+
+    // 验证播放器缺少底层异常时仅保留已有原因。
+    @Test public void retainsAvailablePlaybackReasonWithoutInventingCause() {
+        // 优先保留播放源、错误码与主异常链根因。
+        assertEquals("source=热播,code=3003 | x1.k: Source error",
+                DiagnosticError.backgroundSummary("tag=session,key=热播@@@75204@@@1,code=3003 : x1.k: Source error\n\tat player.start(Player.java:1)"));
+        // 优先保留播放源、错误码与主异常链根因。
+        assertEquals("source=直播,code=2001 | SocketException: Connection reset",
+                DiagnosticError.backgroundSummary("tag=session,key=直播,code=2001 : x1.k: Source error\nCaused by: java.net.SocketException: Connection reset"));
+        String summary = "result=recovered,key=热播,failures={empty=3, timeout=1}";
+        // 优先保留播放源、错误码与主异常链根因。
+        assertEquals(summary, DiagnosticError.backgroundSummary(summary));
+    }
+
+    // 验证后台程序异常提取根因且不残留无效堆栈。
+    @Test public void extractsProgramCauseAndPreservesRedactionAndScreenDetails() {
+        String error = "java.util.concurrent.ExecutionException: wrapper\n\tat worker.run(Worker.java:1)\n"
+                + "Caused by: java.lang.NumberFormatException: For input string: \"\"\n\tat plugin.parse(Plugin.java:2)";
+        // 注入时钟便于验证一小时保留边界。
+        RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
+        // 区分业务摘要与异常并保留诊断信息。
+        buffer.append("SpiderDebug", error, true);
+        // 区分业务摘要与异常并保留诊断信息。
+        buffer.append("f", "tag=session,key=热播@@@1,code=3003 : x1.k: Source error\n"
+                + "Caused by: java.io.IOException: https://user:pass@video.example/v?token=private", true);
+        // 仅屏幕异常保留详情，后台正文最多百字。
+        buffer.append("vod-screen", error, true, true);
+        // 将有限日志编码为可恢复的本地快照。
+        JsonArray saved = JsonParser.parseString(buffer.encode()).getAsJsonArray();
+        assertEquals("SpiderDebug: java.lang.NumberFormatException: For input string: \"\"",
+                saved.get(0).getAsJsonObject().get("text").getAsString());
+        String player = saved.get(1).getAsJsonObject().get("text").getAsString();
+        assertTrue(player, player.contains("video.example/v"));
+        assertFalse(player.contains("user:pass"));
+        assertFalse(player.contains("private"));
+        assertEquals("vod-screen: " + error, saved.get(2).getAsJsonObject().get("text").getAsString());
+        // 注入时钟便于验证一小时保留边界。
+        RecentLogBuffer restored = new RecentLogBuffer(() -> 10_000_000);
+        // 恢复仍在一小时范围内的日志快照。
+        restored.restore(buffer.encode());
+        // 导出按时间排列的最近一小时诊断文本。
+        assertEquals(buffer.export(), restored.export());
+    }
+
     // 验证常见网络错误最多百字且不带协议堆栈。
     @Test public void limitsRoutineNetworkErrorsAndRestoresTheirSummaries() {
         for (String type : new String[]{"SocketException", "SocketTimeoutException", "UnknownHostException",

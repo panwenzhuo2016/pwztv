@@ -93,7 +93,7 @@ public class RecentLogBufferTest {
         String stored = saved.get(0).getAsJsonObject().get("text").getAsString();
         assertTrue(stored.startsWith("SpiderDebug: java.lang.Exception: failed"));
         assertTrue(stored.substring("SpiderDebug: ".length()).length() <= RecentLogBuffer.MAX_BACKGROUND_CHARS);
-        assertTrue(stored.endsWith(" [truncated]"));
+        assertEquals("SpiderDebug: java.lang.Exception: failed", stored);
         assertFalse(saved.get(0).getAsJsonObject().get("visible").getAsBoolean());
         assertTrue(saved.get(0).getAsJsonObject().get("error").getAsBoolean());
     }
