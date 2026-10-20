@@ -3,6 +3,7 @@ package com.fongmi.android.tv.server.process;
 import com.fongmi.android.tv.api.loader.BaseLoader;
 import com.fongmi.android.tv.server.Nano;
 import com.fongmi.android.tv.server.impl.Process;
+import com.fongmi.android.tv.utils.StringMap;
 
 import java.io.InputStream;
 import java.util.Map;
@@ -20,6 +21,7 @@ public class Proxy implements Process {
     }
 
     @Override
+    // 校验插件响应头类型后创建代理响应。
     public Response doResponse(IHTTPSession session, String url, Map<String, String> files) {
         try {
             Map<String, String> params = session.getParms();
@@ -29,7 +31,9 @@ public class Proxy implements Process {
             Object[] rs = BaseLoader.get().proxy(params);
             if (rs[0] instanceof Response) return (Response) rs[0];
             Response response = NanoHTTPD.newChunkedResponse(Status.lookup((Integer) rs[0]), (String) rs[1], (InputStream) rs[2]);
-            if (rs.length > 3 && rs[3] != null) for (Map.Entry<String, String> entry : ((Map<String, String>) rs[3]).entrySet()) response.addHeader(entry.getKey(), entry.getValue());
+            // 校验并复制字符串映射，保留空键值兼容性。
+            Map<String, String> headers = StringMap.copy(rs.length > 3 ? rs[3] : null);
+            for (Map.Entry<String, String> entry : headers.entrySet()) response.addHeader(entry.getKey(), entry.getValue());
             return response;
         } catch (Throwable e) {
             e.printStackTrace();

@@ -6,6 +6,7 @@ import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.os.BundleCompat;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -29,7 +30,9 @@ import com.fongmi.android.tv.ui.base.BaseFragment;
 import com.fongmi.android.tv.ui.custom.CustomScroller;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.fongmi.android.tv.utils.StringMap;
 
+import java.io.Serializable;
 import java.util.HashMap;
 
 public class TypeFragment extends BaseFragment implements CustomScroller.Callback, VodAdapter.OnClickListener, SwipeRefreshLayout.OnRefreshListener {
@@ -61,12 +64,15 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
         return getArguments().getString("typeId");
     }
 
+    // 兼容各安卓版本安全读取页面样式。
     private Style getStyle() {
-        return isFolder() ? Style.list() : getSite().getStyle(getArguments().getParcelable("style"));
+        return isFolder() ? Style.list() : getSite().getStyle(BundleCompat.getParcelable(requireArguments(), "style", Style.class));
     }
 
+    // 兼容旧页面参数并校验筛选映射类型。
     private HashMap<String, String> getExtend() {
-        return (HashMap<String, String>) getArguments().getSerializable("extend");
+        // 校验并复制字符串映射，保留空键值兼容性。
+        return StringMap.copy(BundleCompat.getSerializable(requireArguments(), "extend", Serializable.class));
     }
 
     private int getY() {
@@ -99,6 +105,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
         mBinding.swipeLayout.setColorSchemeResources(R.color.accent);
         mBinding.progressLayout.showProgress();
         mScroller = new CustomScroller(this);
+        // 兼容旧页面参数并校验筛选映射类型。
         mExtends = getExtend();
         setRecyclerView();
         setViewModel();
@@ -114,6 +121,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
     private void setRecyclerView() {
         mBinding.recycler.setTranslationY(-ResUtil.dp2px(getY()));
         mBinding.recycler.setHasFixedSize(true);
+        // 兼容各安卓版本安全读取页面样式。
         setStyle(getStyle());
     }
 
@@ -155,6 +163,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
     }
 
     private void addVideo(Result result) {
+        // 兼容各安卓版本安全读取页面样式。
         Style style = result.getVod().getStyle(getStyle());
         if (!style.equals(mAdapter.getStyle())) setStyle(style);
         mAdapter.addAll(result.getList(), this::checkMore);

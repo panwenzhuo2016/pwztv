@@ -7,6 +7,7 @@ import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.os.BundleCompat;
 import androidx.leanback.widget.ArrayObjectAdapter;
 import androidx.leanback.widget.FocusHighlight;
 import androidx.leanback.widget.HorizontalGridView;
@@ -39,8 +40,10 @@ import com.fongmi.android.tv.ui.presenter.FilterPresenter;
 import com.fongmi.android.tv.ui.presenter.VodPresenter;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.fongmi.android.tv.utils.StringMap;
 import com.google.common.collect.Lists;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -81,12 +84,15 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
         return getArguments().getBoolean("folder");
     }
 
+    // 兼容各安卓版本安全读取页面样式。
     private Style getStyle() {
-        return isFolder() ? Style.list() : getSite().getStyle(getArguments().getParcelable("style"));
+        return isFolder() ? Style.list() : getSite().getStyle(BundleCompat.getParcelable(requireArguments(), "style", Style.class));
     }
 
+    // 兼容旧页面参数并校验筛选映射类型。
     private HashMap<String, String> getExtend() {
-        return (HashMap<String, String>) getArguments().getSerializable("extend");
+        // 校验并复制字符串映射，保留空键值兼容性。
+        return StringMap.copy(BundleCompat.getSerializable(requireArguments(), "extend", Serializable.class));
     }
 
     private List<Filter> getFilter() {
@@ -110,6 +116,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
     protected void initView() {
         mBinding.swipeLayout.setColorSchemeResources(R.color.accent);
         mScroller = new CustomScroller(this);
+        // 兼容旧页面参数并校验筛选映射类型。
         mExtends = getExtend();
         mFilters = getFilter();
         setRecyclerView();
@@ -179,6 +186,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
     }
 
     private void addVideo(Result result) {
+        // 兼容各安卓版本安全读取页面样式。
         Style style = result.getStyle(getStyle());
         if (style.isList()) mAdapter.addAll(mAdapter.size(), result.getList());
         else addGrid(result.getList(), style);
