@@ -1,5 +1,9 @@
 package com.fongmi.android.tv.utils;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
 import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -15,6 +19,81 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.Assert.*;
 
 public class RecentLogBufferTest {
+    // 验证业务正文含截断标记仍不超过一百字。
+    @Test public void businessMessagesHaveOneHundredCharacterLimit() {
+        // 注入时钟便于验证一小时保留边界。
+        RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
+        for (int length : List.of(99, 100, 101, 10_000)) {
+            // 记录脱敏日志并限制单条与总容量。
+            buffer.append("search", "中".repeat(length));
+        }
+        // 将有限日志编码为可恢复的本地快照。
+        JsonArray saved = JsonParser.parseString(buffer.encode()).getAsJsonArray();
+        for (int i = 0; i < saved.size(); i++) {
+            String body = saved.get(i).getAsJsonObject().get("text").getAsString().substring("search: ".length());
+            assertEquals(i == 0 ? 99 : 100, body.length());
+            assertEquals(i >= 2, body.endsWith(" [truncated]"));
+        }
+    }
+
+    // 验证先脱敏再摘要且不截断表情字符。
+    @Test public void businessSummaryDoesNotExposePartialCredentials() {
+        // 注入时钟便于验证一小时保留边界。
+        RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
+        // 记录脱敏日志并限制单条与总容量。
+        buffer.append("search", "https://user:" + "private-password".repeat(20) + "@example.org/video?token=secret");
+        // 记录脱敏日志并限制单条与总容量。
+        buffer.append("search", "x".repeat(87) + "😀".repeat(20));
+        // 将有限日志编码为可恢复的本地快照。
+        String saved = buffer.encode();
+        assertFalse(saved.contains("private"));
+        assertFalse(saved.contains("token=secret"));
+        JsonArray entries = JsonParser.parseString(saved).getAsJsonArray();
+        String text = entries.get(1).getAsJsonObject().get("text").getAsString();
+        assertEquals("search: " + "x".repeat(87) + " [truncated]", text);
+    }
+
+    // 验证超过四千字的异常及根因重启后仍完整。
+    @Test public void preservesLongExceptionAcrossRestart() {
+        // 注入时钟便于验证一小时保留边界。
+        RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
+        String error = "java.lang.IllegalStateException: failed\n"
+                + "\tat parser.resolve(Parser.java:42)\n".repeat(180)
+                + "Caused by: org.json.JSONException: root cause at end";
+        // 区分业务摘要与异常并保留诊断信息。
+        buffer.append("player", error, true);
+        // 导出按时间排列的最近一小时诊断文本。
+        assertTrue(buffer.export().contains(error));
+        // 注入时钟便于验证一小时保留边界。
+        RecentLogBuffer restored = new RecentLogBuffer(() -> 10_000_000);
+        // 恢复仍在一小时范围内的日志快照。
+        restored.restore(buffer.encode());
+        // 导出按时间排列的最近一小时诊断文本。
+        assertEquals(buffer.export(), restored.export());
+        assertFalse(restored.export().contains("[truncated]"));
+    }
+
+    // 验证旧快照压缩业务数据且保留可识别异常。
+    @Test public void migratesOldBusinessAndExceptionEntries() {
+        JsonArray old = new JsonArray();
+        String error = "SpiderDebug: java.lang.Exception: failed\n\tat parser.run(Parser.java:1)\n" + "x".repeat(5000);
+        for (String text : List.of("search: " + "业务".repeat(2000), error)) {
+            JsonObject item = new JsonObject();
+            item.addProperty("time", 10_000_000);
+            item.addProperty("text", text);
+            old.add(item);
+        }
+        // 注入时钟便于验证一小时保留边界。
+        RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
+        // 恢复仍在一小时范围内的日志快照。
+        buffer.restore(old.toString());
+        // 将有限日志编码为可恢复的本地快照。
+        JsonArray saved = JsonParser.parseString(buffer.encode()).getAsJsonArray();
+        assertEquals(100, saved.get(0).getAsJsonObject().get("text").getAsString().substring("search: ".length()).length());
+        assertEquals(error, saved.get(1).getAsJsonObject().get("text").getAsString());
+        assertTrue(saved.get(1).getAsJsonObject().get("error").getAsBoolean());
+    }
+
     // 验证刚好一小时的日志保留且超时后移除。
     @Test public void expiresOnlyEntriesOutsideTheHour() {
         AtomicLong now = new AtomicLong(10_000_000);
@@ -40,14 +119,14 @@ public class RecentLogBufferTest {
     @Test public void boundsLargeAndFrequentLogs() {
         // 注入时钟便于验证一小时保留边界。
         RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 3000; i++) {
             // 记录脱敏日志并限制单条与总容量。
             buffer.append("search", "event=" + i + " " + "x".repeat(10_000));
         }
         // 导出按时间排列的最近一小时诊断文本。
         String report = buffer.export();
         assertFalse(report.contains("event=0 "));
-        assertTrue(report.contains("event=99 "));
+        assertTrue(report.contains("event=2999 "));
         assertTrue(report.contains("[truncated]"));
         assertTrue(report.length() < RecentLogBuffer.MAX_CHARS + 2048 * 25);
     }
@@ -58,7 +137,7 @@ public class RecentLogBufferTest {
         RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
         // 记录脱敏日志并限制单条与总容量。
         buffer.append("player", "key=dytt url=https://user:pass@example.org/v.m3u8?token=private#secret\n"
-                + "headers={Authorization=Bearer access, Cookie=session-data}\npassword=hidden\n{\"token\":\"json-secret\"}");
+                + "headers={Authorization=Bearer access, Cookie=session-data}\npassword=hidden\n{\"token\":\"json-secret\"}", true);
         // 导出按时间排列的最近一小时诊断文本。
         String report = buffer.export();
         assertTrue(report.contains("key=dytt"));

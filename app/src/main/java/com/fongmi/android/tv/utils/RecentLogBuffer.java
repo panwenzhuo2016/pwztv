@@ -17,15 +17,17 @@ import java.util.regex.Pattern;
 public final class RecentLogBuffer {
     public static final long RETENTION_MS = TimeUnit.HOURS.toMillis(1);
     public static final int MAX_CHARS = 96 * 1024;
-    private static final int MAX_ENTRY_CHARS = 4096;
+    public static final int MAX_BUSINESS_CHARS = 100;
     private static final int MAX_ENTRIES = 2048;
+    private static final String TRUNCATED = " [truncated]";
+    private static final Pattern STACK = Pattern.compile("(?m)^\\s*(?:at [\\w.$/]+\\([^\\r\\n]*\\)|Caused by: |Suppressed: )");
     private static final Pattern URL = Pattern.compile("https?://[^\\s\"'<>]+", Pattern.CASE_INSENSITIVE);
     private static final Pattern SECRET = Pattern.compile("(?i)(authorization|(?:set-)?cookie|password|token|secret|api[_-]?key|access[_-]?token)([\"']?\\s*[:=]\\s*)[^\\r\\n,}]+");
     private final ArrayDeque<Entry> entries = new ArrayDeque<>();
     private final LongSupplier clock;
     private int chars;
 
-    private record Entry(long time, String text) { }
+    private record Entry(long time, String text, boolean error) { }
 
     // 注入时钟便于验证一小时保留边界。
     public RecentLogBuffer(LongSupplier clock) {
@@ -33,18 +35,47 @@ public final class RecentLogBuffer {
     }
 
     // 记录脱敏日志并限制单条与总容量。
-    public synchronized void append(String tag, String message) {
+    public void append(String tag, String message) {
+        // 区分业务摘要与异常并保留诊断信息。
+        append(tag, message, false);
+    }
+
+    // 区分业务摘要与异常并保留诊断信息。
+    public synchronized void append(String tag, String message, boolean error) {
         if (message == null || message.isBlank()) return;
         String source = tag == null ? "app" : tag;
-        String text = source.equals("aesX") || source.equals("rsaX") ? "[crypto details omitted]" : message;
-        if (text.length() > MAX_ENTRY_CHARS) text = text.substring(0, MAX_ENTRY_CHARS) + " [truncated]";
-        // 遮蔽链接凭据与常见认证字段。
-        text = source + ": " + redact(text);
-        if (text.length() > MAX_ENTRY_CHARS) text = text.substring(0, MAX_ENTRY_CHARS) + " [truncated]";
-        entries.addLast(new Entry(clock.getAsLong(), text));
+        // 识别旧日志中的异常标签与堆栈。
+        error |= isError(source, message);
+        // 统一整理摘要与异常并遮蔽敏感信息。
+        String text = prepare(source, message, error);
+        entries.addLast(new Entry(clock.getAsLong(), text, error));
         chars += text.length();
         // 淘汰过期条目与超出容量的最早日志。
         trim();
+    }
+
+    // 识别旧日志中的异常标签与堆栈。
+    private static boolean isError(String tag, String message) {
+        return "error".equals(tag) || STACK.matcher(message).find();
+    }
+
+    // 统一整理摘要与异常并遮蔽敏感信息。
+    private static String prepare(String tag, String message, boolean error) {
+        String text = tag.equals("aesX") || tag.equals("rsaX") ? "[crypto details omitted]" : message;
+        // 遮蔽链接凭据与常见认证字段。
+        text = redact(text);
+        // 按字符预算截断且保留完整字符。
+        if (!error) text = shorten(text, MAX_BUSINESS_CHARS);
+        // 按字符预算截断且保留完整字符。
+        return shorten(tag + ": " + text, MAX_CHARS);
+    }
+
+    // 按字符预算截断且保留完整字符。
+    private static String shorten(String text, int limit) {
+        if (text.length() <= limit) return text;
+        int end = limit - TRUNCATED.length();
+        if (end > 0 && Character.isHighSurrogate(text.charAt(end - 1))) end--;
+        return text.substring(0, end) + TRUNCATED;
     }
 
     // 淘汰过期条目与超出容量的最早日志。
@@ -74,6 +105,7 @@ public final class RecentLogBuffer {
             JsonObject item = new JsonObject();
             item.addProperty("time", entry.time);
             item.addProperty("text", entry.text);
+            item.addProperty("error", entry.error);
             array.add(item);
         }
         return array.toString();
@@ -90,10 +122,14 @@ public final class RecentLogBuffer {
             if (time < previous) throw new IllegalArgumentException("Unordered diagnostic snapshot");
             previous = time;
             if (time < now - RETENTION_MS || time > now) continue;
-            // 遮蔽链接凭据与常见认证字段。
-            String text = redact(item.get("text").getAsString());
-            if (text.length() > MAX_ENTRY_CHARS + 32) text = text.substring(0, MAX_ENTRY_CHARS);
-            restored.addLast(new Entry(time, text));
+            String stored = item.get("text").getAsString();
+            int separator = stored.indexOf(": ");
+            String tag = separator < 0 ? "app" : stored.substring(0, separator);
+            String message = separator < 0 ? stored : stored.substring(separator + 2);
+            // 识别旧日志中的异常标签与堆栈。
+            boolean error = item.has("error") ? item.get("error").getAsBoolean() : isError(tag, message);
+            // 统一整理摘要与异常并遮蔽敏感信息。
+            restored.addLast(new Entry(time, prepare(tag, message, error), error));
         }
         entries.clear();
         entries.addAll(restored);

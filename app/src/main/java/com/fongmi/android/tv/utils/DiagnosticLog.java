@@ -78,19 +78,25 @@ public final class DiagnosticLog implements LogAdapter {
         return true;
     }
 
-    // 接收现有日志库事件并写入有限缓冲。
+    // 按日志等级区分业务摘要与完整异常。
     @Override
     public void log(int priority, String tag, String message) {
-        // 记录额外诊断事件且不依赖系统日志权限。
-        record(tag, message);
+        // 按异常标记写入脱敏诊断缓冲。
+        record(tag, message, priority >= Log.ERROR);
     }
 
     // 记录额外诊断事件且不依赖系统日志权限。
     public static void record(String tag, String message) {
+        // 按异常标记写入脱敏诊断缓冲。
+        record(tag, message, false);
+    }
+
+    // 按异常标记写入脱敏诊断缓冲。
+    public static void record(String tag, String message, boolean error) {
         DiagnosticLog value = instance;
         if (value == null) return;
-        // 记录脱敏日志并限制单条与总容量。
-        value.buffer.append(tag, message);
+        // 区分业务摘要与异常并保留诊断信息。
+        value.buffer.append(tag, message, error);
     }
 
     // 在后台原子保存已变化的日志快照。
@@ -122,7 +128,8 @@ public final class DiagnosticLog implements LogAdapter {
             String logs = value.buffer.export();
             String report = "TV diagnostics\nversion=" + BuildConfig.VERSION_NAME + ",mode=" + BuildConfig.FLAVOR_mode
                     + ",abi=" + BuildConfig.FLAVOR_abi + "\nAndroid=" + Build.VERSION.RELEASE + ",device=" + Build.MANUFACTURER + " " + Build.MODEL
-                    + "\nWindow: last 1 hour; newest 2048 entries / 96K text chars; each entry up to 4K chars.\n"
+                    + "\nWindow: last 1 hour; newest 2048 entries / 96K text chars.\n"
+                    + "Business messages: up to 100 chars; errors: full stack traces within total capacity.\n"
                     + "Local application logs; URL queries and common credentials redacted.\n"
                     + (logs.isEmpty() ? "No application logs in this window.\n" : logs);
             App.post(() -> Util.copy(report));

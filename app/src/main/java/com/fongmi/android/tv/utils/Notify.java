@@ -39,8 +39,8 @@ public class Notify {
 
     // 保留原始异常供设置页复制诊断。
     public static String getError(int resId, Throwable e) {
-        // 记录额外诊断事件且不依赖系统日志权限。
-        DiagnosticLog.record("error", "res=" + resId + "\n" + android.util.Log.getStackTraceString(e));
+        // 按异常标记写入脱敏诊断缓冲。
+        DiagnosticLog.record("error", "res=" + resId + "\n" + android.util.Log.getStackTraceString(e), true);
         if (TextUtils.isEmpty(e.getMessage())) return ResUtil.getString(resId);
         return ResUtil.getString(resId) + "\n" + e.getMessage();
     }
