@@ -18,6 +18,7 @@ import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.exception.ExtractException;
 import com.fongmi.android.tv.player.Source;
 import com.github.catvod.net.OkHttp;
+import com.github.catvod.crawler.SpiderDebug;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -194,7 +195,8 @@ public class LiveViewModel extends ViewModel {
                 else if (type == TaskType.URL) postUrl(currentId, new Result());
                 else if (type == TaskType.EPG) epg.postValue(new Epg());
                 else if (type == TaskType.XML) xml.postValue(false);
-                e.printStackTrace();
+                // 将异常堆栈同时交给本机诊断适配器。
+                SpiderDebug.log(e);
             }
         });
     }

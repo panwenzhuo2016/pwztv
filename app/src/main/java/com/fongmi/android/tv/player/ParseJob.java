@@ -14,6 +14,7 @@ import com.fongmi.android.tv.ui.custom.CustomWebView;
 import com.fongmi.android.tv.utils.UrlUtil;
 import com.fongmi.android.tv.utils.WebViewUtil;
 import com.github.catvod.net.OkHttp;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Json;
 import com.github.catvod.utils.Util;
 import com.google.common.net.HttpHeaders;
@@ -53,6 +54,7 @@ public class ParseJob implements ParseCallback {
 
     public ParseJob start(Result result, boolean useParse) {
         setParse(result, useParse);
+        // 执行解析并记录超时与取消异常。
         execute(result);
         return this;
     }
@@ -72,21 +74,30 @@ public class ParseJob implements ParseCallback {
         return result.getClick();
     }
 
+    // 执行解析并记录超时与取消异常。
     private void execute(Result result) {
         executor.execute(() -> {
             try {
+                // 解析失败时保留来源与原始异常。
                 executor.submit(getTask(result)).get(Constant.TIMEOUT_PARSE_DEF, TimeUnit.MILLISECONDS);
             } catch (Throwable e) {
+                SpiderDebug.log("parse", "key=%s,stage=wait", result.getKey());
+                // 将异常堆栈同时交给本机诊断适配器。
+                SpiderDebug.log(e);
                 onParseError();
             }
         });
     }
 
+    // 解析失败时保留来源与原始异常。
     private Runnable getTask(Result result) {
         return () -> {
             try {
                 doInBackground(result.getKey(), result.getUrl().v(), result.getFlag());
             } catch (Throwable e) {
+                SpiderDebug.log("parse", "key=%s,stage=resolve", result.getKey());
+                // 将异常堆栈同时交给本机诊断适配器。
+                SpiderDebug.log(e);
                 onParseError();
             }
         };
@@ -147,11 +158,13 @@ public class ParseJob implements ParseCallback {
         onParseError();
     }
 
+    // 记录并行解析异常并释放等待计数。
     private void jsonParse(CountDownLatch latch, Parse item, String webUrl) {
         try {
             jsonParse(item, webUrl, false);
         } catch (Exception e) {
-            e.printStackTrace();
+            // 将异常堆栈同时交给本机诊断适配器。
+            SpiderDebug.log(e);
         } finally {
             latch.countDown();
         }

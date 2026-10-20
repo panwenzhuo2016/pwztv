@@ -6,6 +6,7 @@
 
     <!-- Setting -->
     <string name="setting_cache">Clear cache</string>
+    <string name="setting_copy_error">Copy error logs</string>
 
     <!-- Nav -->
     <string name="nav_vod">Vod</string>

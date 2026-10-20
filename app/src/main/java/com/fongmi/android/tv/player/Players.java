@@ -662,8 +662,10 @@ public class Players implements Player.Listener, ParseCallback {
         initTrack = true;
     }
 
+    // 记录播放器异常并沿用原有恢复流程。
     @Override
     public void onPlayerError(@NonNull PlaybackException e) {
+        Logger.t(TAG).e(e, "tag=%s,key=%s,code=%s", tag, getKey(), e.errorCode);
         // 展示实际HTTP状态码便于定位失效来源。
         if (++retry > 2) ErrorEvent.extract(tag, provider.get(e));
         else switch (e.errorCode) {

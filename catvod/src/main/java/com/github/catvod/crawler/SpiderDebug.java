@@ -8,8 +8,11 @@ public class SpiderDebug {
 
     private static final String TAG = SpiderDebug.class.getSimpleName();
 
+    // 将异常堆栈同时交给本机诊断适配器。
     public static void log(Throwable th) {
-        if (th != null) th.printStackTrace();
+        if (th == null) return;
+        th.printStackTrace();
+        Logger.t(TAG).e(android.util.Log.getStackTraceString(th));
     }
 
     public static void log(String msg) {

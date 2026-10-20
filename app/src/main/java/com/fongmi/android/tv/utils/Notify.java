@@ -37,7 +37,10 @@ public class Notify {
         notifyMgr.createNotificationChannel(new NotificationChannelCompat.Builder(DEFAULT, NotificationManagerCompat.IMPORTANCE_LOW).setName("TV").build());
     }
 
+    // 保留原始异常供设置页复制诊断。
     public static String getError(int resId, Throwable e) {
+        // 记录额外诊断事件且不依赖系统日志权限。
+        DiagnosticLog.record("error", "res=" + resId + "\n" + android.util.Log.getStackTraceString(e));
         if (TextUtils.isEmpty(e.getMessage())) return ResUtil.getString(resId);
         return ResUtil.getString(resId) + "\n" + e.getMessage();
     }
@@ -51,7 +54,10 @@ public class Notify {
         if (resId != 0) show(ResUtil.getString(resId));
     }
 
+    // 记录提示文字并显示原有用户提示。
     public static void show(String text) {
+        // 记录额外诊断事件且不依赖系统日志权限。
+        DiagnosticLog.record("notice", text);
         if (!TextUtils.isEmpty(text)) get().makeText(text);
     }
 

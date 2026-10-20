@@ -401,7 +401,8 @@ public class SiteViewModel extends ViewModel {
                 if (taskId.get() != currentId) return;
                 if (e.getCause() instanceof ExtractException) result.postValue(Result.error(e.getCause().getMessage()));
                 else result.postValue(Result.empty());
-                e.printStackTrace();
+                // 将异常堆栈同时交给本机诊断适配器。
+                SpiderDebug.log(e);
             }
         });
     }

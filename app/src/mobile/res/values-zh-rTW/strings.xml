@@ -6,6 +6,7 @@
 
     <!-- Setting -->
     <string name="setting_cache">清理暫存</string>
+    <string name="setting_copy_error">複製錯誤紀錄</string>
 
     <!-- Nav -->
     <string name="nav_vod">點播</string>

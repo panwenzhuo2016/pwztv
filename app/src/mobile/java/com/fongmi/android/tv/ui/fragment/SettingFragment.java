@@ -25,6 +25,7 @@ import com.fongmi.android.tv.ui.base.BaseFragment;
 import com.fongmi.android.tv.ui.dialog.ConfigDialog;
 import com.fongmi.android.tv.ui.dialog.HistoryDialog;
 import com.fongmi.android.tv.utils.FileChooser;
+import com.fongmi.android.tv.utils.DiagnosticLog;
 import com.fongmi.android.tv.utils.FileUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
@@ -91,6 +92,8 @@ public class SettingFragment extends BaseFragment implements ConfigCallback {
         mBinding.wall.setOnClickListener(this::onWall);
         mBinding.size.setOnClickListener(this::setSize);
         mBinding.cache.setOnClickListener(this::onCache);
+        // 后台生成最近一小时日志并复制到剪贴板。
+        mBinding.copyError.setOnClickListener(view -> DiagnosticLog.copyRecent());
         mBinding.player.setOnClickListener(this::onPlayer);
         // 编辑当前壁纸地址。
         mBinding.wall.setOnLongClickListener(this::onWallEdit);
