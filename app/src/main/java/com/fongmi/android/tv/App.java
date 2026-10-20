@@ -1,6 +1,7 @@
 package com.fongmi.android.tv;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.Application;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -13,6 +14,7 @@ import androidx.annotation.Nullable;
 import androidx.core.os.HandlerCompat;
 
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.ResourceBudget;
 import com.fongmi.hook.Hook;
 import com.github.catvod.Init;
 import com.google.gson.Gson;
@@ -21,24 +23,29 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
 
 public class App extends Application implements Application.ActivityLifecycleCallbacks {
 
-    private final ExecutorService searchExecutor;
+    private final ThreadPoolExecutor searchExecutor;
     private final ExecutorService executor;
     private final Handler handler;
     private static App instance;
     private Activity activity;
     private final Gson gson;
     private final long time;
+    private ResourceBudget resourceBudget;
     private Hook hook;
 
+    // 初始化执行器并使用默认资源预算。
     public App() {
         instance = this;
         gson = new Gson();
         time = System.currentTimeMillis();
         executor = Executors.newFixedThreadPool(5);
-        searchExecutor = Executors.newFixedThreadPool(20);
+        // 兼顾系统低内存标记和应用堆额度。
+        resourceBudget = ResourceBudget.forDevice(false, 0);
+        searchExecutor = (ThreadPoolExecutor) Executors.newFixedThreadPool(resourceBudget.searchThreads);
         handler = HandlerCompat.createAsync(Looper.getMainLooper());
     }
 
@@ -46,9 +53,15 @@ public class App extends Application implements Application.ActivityLifecycleCal
         this.hook = hook;
     }
 
+    // 绑定上下文后按设备内存设置搜索并发。
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
+        ActivityManager manager = (ActivityManager) base.getSystemService(Context.ACTIVITY_SERVICE);
+        // 兼顾系统低内存标记和应用堆额度。
+        resourceBudget = ResourceBudget.forDevice(manager != null && manager.isLowRamDevice(), manager == null ? 0 : manager.getMemoryClass());
+        // 调整搜索并发且保留所有排队任务。
+        resourceBudget.configureSearch(searchExecutor);
         Init.set(base);
     }
 
@@ -101,6 +114,11 @@ public class App extends Application implements Application.ActivityLifecycleCal
 
     public static App get() {
         return instance;
+    }
+
+    // 获取当前设备的搜索和图片资源预算。
+    public static ResourceBudget resourceBudget() {
+        return get().resourceBudget;
     }
 
     public static Gson gson() {
