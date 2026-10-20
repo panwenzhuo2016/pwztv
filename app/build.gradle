@@ -99,6 +99,11 @@ android {
     }
 }
 
+// 仅隐藏javac说明提示，保留编译警告和错误。
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs.add('-XDsuppressNotes')
+}
+
 dependencies {
     testImplementation 'junit:junit:4.13.2'
     implementation fileTree(dir: "libs", include: ["*.aar"])
