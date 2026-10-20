@@ -9,6 +9,8 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
 import java.util.Date;
 import java.util.Locale;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
@@ -20,14 +22,32 @@ public final class RecentLogBuffer {
     public static final int MAX_BUSINESS_CHARS = 100;
     private static final int MAX_ENTRIES = 2048;
     private static final String TRUNCATED = " [truncated]";
+    private static final long MERGE_MS = TimeUnit.MINUTES.toMillis(1);
+    private static final Pattern CANCELED = Pattern.compile("(?m)^(?:Caused by: )?java\\.(?:lang\\.InterruptedException|util\\.concurrent\\.CancellationException)\\b|(?:^|\\n)(?:Caused by: )?(?:java\\.io\\.(?:InterruptedIOException|IOException): )?(?:Canceled|Home request canceled|interrupted)(?:\\s|$)");
     private static final Pattern STACK = Pattern.compile("(?m)^\\s*(?:at [\\w.$/]+\\([^\\r\\n]*\\)|Caused by: |Suppressed: )");
     private static final Pattern URL = Pattern.compile("https?://[^\\s\"'<>]+", Pattern.CASE_INSENSITIVE);
     private static final Pattern SECRET = Pattern.compile("(?i)(authorization|(?:set-)?cookie|password|token|secret|api[_-]?key|access[_-]?token)([\"']?\\s*[:=]\\s*)[^\\r\\n,}]+");
     private final ArrayDeque<Entry> entries = new ArrayDeque<>();
+    private final Map<String, Entry> repeated = new HashMap<>();
     private final LongSupplier clock;
     private int chars;
 
-    private record Entry(long time, String text, boolean error) { }
+    private static final class Entry {
+        final long time;
+        final String text;
+        final boolean error;
+        long last;
+        int count;
+
+        // 保存异常内容及重复计数时间范围。
+        Entry(long time, String text, boolean error, int count, long last) {
+            this.time = time;
+            this.text = text;
+            this.error = error;
+            this.count = count;
+            this.last = last;
+        }
+    }
 
     // 注入时钟便于验证一小时保留边界。
     public RecentLogBuffer(LongSupplier clock) {
@@ -48,10 +68,33 @@ public final class RecentLogBuffer {
         error |= isError(source, message);
         // 统一整理摘要与异常并遮蔽敏感信息。
         String text = prepare(source, message, error);
-        entries.addLast(new Entry(clock.getAsLong(), text, error));
-        chars += text.length();
         // 淘汰过期条目与超出容量的最早日志。
         trim();
+        long now = clock.getAsLong();
+        // 合并一分钟内内容相同的异常。
+        store(new Entry(now, text, error, 1, now));
+        // 淘汰过期条目与超出容量的最早日志。
+        trim();
+    }
+
+    // 仅保留异常并排除正常取消与业务数据。
+    public static boolean useful(String tag, String message, boolean error) {
+        if (message == null || message.isBlank() || CANCELED.matcher(message).find()) return false;
+        // 识别旧日志中的异常标签与堆栈。
+        return error || isError(tag, message) || ("notice".equals(tag) && message.contains("cannot be converted to"));
+    }
+
+    // 合并一分钟内内容相同的异常。
+    private void store(Entry entry) {
+        Entry previous = repeated.get(entry.text);
+        if (entry.error && previous != null && previous.error && entry.last - previous.time <= MERGE_MS) {
+            previous.count = (int) Math.min(Integer.MAX_VALUE, (long) previous.count + entry.count);
+            previous.last = Math.max(previous.last, entry.last);
+            return;
+        }
+        entries.addLast(entry);
+        repeated.put(entry.text, entry);
+        chars += entry.text.length();
     }
 
     // 识别旧日志中的异常标签与堆栈。
@@ -82,7 +125,9 @@ public final class RecentLogBuffer {
     private void trim() {
         long cutoff = clock.getAsLong() - RETENTION_MS;
         while (!entries.isEmpty() && (entries.peekFirst().time < cutoff || chars > MAX_CHARS || entries.size() > MAX_ENTRIES)) {
-            chars -= entries.removeFirst().text.length();
+            Entry removed = entries.removeFirst();
+            chars -= removed.text.length();
+            repeated.remove(removed.text, removed);
         }
     }
 
@@ -92,7 +137,11 @@ public final class RecentLogBuffer {
         trim();
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.ROOT);
         StringBuilder text = new StringBuilder();
-        for (Entry entry : entries) text.append(format.format(new Date(entry.time))).append(' ').append(entry.text).append('\n');
+        for (Entry entry : entries) {
+            text.append(format.format(new Date(entry.time)));
+            if (entry.count > 1) text.append(" [count=").append(entry.count).append(",last=").append(format.format(new Date(entry.last))).append(']');
+            text.append(' ').append(entry.text).append('\n');
+        }
         return text.toString();
     }
 
@@ -106,6 +155,8 @@ public final class RecentLogBuffer {
             item.addProperty("time", entry.time);
             item.addProperty("text", entry.text);
             item.addProperty("error", entry.error);
+            item.addProperty("count", entry.count);
+            item.addProperty("last", entry.last);
             array.add(item);
         }
         return array.toString();
@@ -114,7 +165,8 @@ public final class RecentLogBuffer {
     // 恢复仍在一小时范围内的日志快照。
     public synchronized void restore(String snapshot) {
         JsonArray array = JsonParser.parseString(snapshot).getAsJsonArray();
-        ArrayDeque<Entry> restored = new ArrayDeque<>();
+        // 注入时钟便于验证一小时保留边界。
+        RecentLogBuffer restored = new RecentLogBuffer(clock);
         long now = clock.getAsLong(), previous = Long.MIN_VALUE;
         for (JsonElement element : array) {
             JsonObject item = element.getAsJsonObject();
@@ -128,12 +180,21 @@ public final class RecentLogBuffer {
             String message = separator < 0 ? stored : stored.substring(separator + 2);
             // 识别旧日志中的异常标签与堆栈。
             boolean error = item.has("error") ? item.get("error").getAsBoolean() : isError(tag, message);
+            // 仅保留异常并排除正常取消与业务数据。
+            if (!useful(tag, message, error)) continue;
+            error = true;
+            int count = item.has("count") ? item.get("count").getAsInt() : 1;
+            long last = item.has("last") ? item.get("last").getAsLong() : time;
+            if (count < 1 || last < time || last > now) throw new IllegalArgumentException("Invalid diagnostic count or time");
             // 统一整理摘要与异常并遮蔽敏感信息。
-            restored.addLast(new Entry(time, prepare(tag, message, error), error));
+            // 合并一分钟内内容相同的异常。
+            restored.store(new Entry(time, prepare(tag, message, error), error, count, last));
         }
         entries.clear();
-        entries.addAll(restored);
-        chars = entries.stream().mapToInt(entry -> entry.text.length()).sum();
+        entries.addAll(restored.entries);
+        repeated.clear();
+        repeated.putAll(restored.repeated);
+        chars = restored.chars;
         // 淘汰过期条目与超出容量的最早日志。
         trim();
     }

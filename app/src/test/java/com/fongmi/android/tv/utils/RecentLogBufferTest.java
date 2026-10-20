@@ -73,7 +73,7 @@ public class RecentLogBufferTest {
         assertFalse(restored.export().contains("[truncated]"));
     }
 
-    // 验证旧快照压缩业务数据且保留可识别异常。
+    // 验证旧快照过滤业务数据且保留可识别异常。
     @Test public void migratesOldBusinessAndExceptionEntries() {
         JsonArray old = new JsonArray();
         String error = "SpiderDebug: java.lang.Exception: failed\n\tat parser.run(Parser.java:1)\n" + "x".repeat(5000);
@@ -89,9 +89,9 @@ public class RecentLogBufferTest {
         buffer.restore(old.toString());
         // 将有限日志编码为可恢复的本地快照。
         JsonArray saved = JsonParser.parseString(buffer.encode()).getAsJsonArray();
-        assertEquals(100, saved.get(0).getAsJsonObject().get("text").getAsString().substring("search: ".length()).length());
-        assertEquals(error, saved.get(1).getAsJsonObject().get("text").getAsString());
-        assertTrue(saved.get(1).getAsJsonObject().get("error").getAsBoolean());
+        assertEquals(1, saved.size());
+        assertEquals(error, saved.get(0).getAsJsonObject().get("text").getAsString());
+        assertTrue(saved.get(0).getAsJsonObject().get("error").getAsBoolean());
     }
 
     // 验证刚好一小时的日志保留且超时后移除。

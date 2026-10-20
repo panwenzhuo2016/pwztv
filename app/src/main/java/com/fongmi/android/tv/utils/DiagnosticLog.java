@@ -68,21 +68,21 @@ public final class DiagnosticLog implements LogAdapter {
         // 恢复本地日志并定期保存有限快照。
         instance = new DiagnosticLog(context.getApplicationContext());
         Logger.addLogAdapter(instance);
-        // 记录额外诊断事件且不依赖系统日志权限。
-        record("session", "start version=" + BuildConfig.VERSION_NAME + ",mode=" + BuildConfig.FLAVOR_mode);
     }
 
-    // 接收当前进程的全部日志等级。
+    // 过滤业务调试日志仅接收警告和异常。
     @Override
     public boolean isLoggable(int priority, String tag) {
-        return true;
+        return priority >= Log.WARN;
     }
 
     // 按日志等级区分业务摘要与完整异常。
     @Override
     public void log(int priority, String tag, String message) {
+        // 过滤业务调试日志仅接收警告和异常。
+        if (!isLoggable(priority, tag)) return;
         // 按异常标记写入脱敏诊断缓冲。
-        record(tag, message, priority >= Log.ERROR);
+        record(tag, message, true);
     }
 
     // 记录额外诊断事件且不依赖系统日志权限。
@@ -93,10 +93,12 @@ public final class DiagnosticLog implements LogAdapter {
 
     // 按异常标记写入脱敏诊断缓冲。
     public static void record(String tag, String message, boolean error) {
+        // 仅保留异常并排除正常取消与业务数据。
+        if (!RecentLogBuffer.useful(tag, message, error)) return;
         DiagnosticLog value = instance;
         if (value == null) return;
         // 区分业务摘要与异常并保留诊断信息。
-        value.buffer.append(tag, message, error);
+        value.buffer.append(tag, message, true);
     }
 
     // 在后台原子保存已变化的日志快照。
@@ -128,10 +130,8 @@ public final class DiagnosticLog implements LogAdapter {
             String logs = value.buffer.export();
             String report = "TV diagnostics\nversion=" + BuildConfig.VERSION_NAME + ",mode=" + BuildConfig.FLAVOR_mode
                     + ",abi=" + BuildConfig.FLAVOR_abi + "\nAndroid=" + Build.VERSION.RELEASE + ",device=" + Build.MANUFACTURER + " " + Build.MODEL
-                    + "\nWindow: last 1 hour; newest 2048 entries / 96K text chars.\n"
-                    + "Business messages: up to 100 chars; errors: full stack traces within total capacity.\n"
-                    + "Local application logs; URL queries and common credentials redacted.\n"
-                    + (logs.isEmpty() ? "No application logs in this window.\n" : logs);
+                    + "\nLast 1h; errors and home summaries; duplicates merged within 1min; 96K limit; credentials redacted.\n"
+                    + (logs.isEmpty() ? "No diagnostic errors in this window.\n" : logs);
             App.post(() -> Util.copy(report));
         });
     }

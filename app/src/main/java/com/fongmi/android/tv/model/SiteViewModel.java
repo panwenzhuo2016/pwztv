@@ -20,6 +20,7 @@ import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.exception.ExtractException;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.DiagnosticLog;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
 import com.github.catvod.crawler.Spider;
@@ -91,18 +92,29 @@ public class SiteViewModel extends ViewModel {
         HomeLoader<Site, Result> loader = new HomeLoader<>(Constant.TIMEOUT_HOME, App::submit,
                 value -> value.getList().stream().anyMatch(item -> !item.getId().isEmpty() && !item.getName().isEmpty()));
         FutureTask<Result> task = new FutureTask<>(() -> {
+            HomeDiagnostics diagnostics = new HomeDiagnostics();
             try {
                 // 超时或空内容即换源并取消上一来源请求。
                 HomeLoader.Outcome<Site, Result> loaded = loader.load(sites, site -> {
                     // 绑定单个首页来源的内容加载任务。
                     return new HomeRequest(connection -> {
-                        // 使用捕获的来源和可取消连接加载首页。
-                        return loadHome(site, connection);
+                        try {
+                            // 使用捕获的来源和可取消连接加载首页。
+                            return loadHome(site, connection);
+                        } catch (Exception error) {
+                            // 保存首个真实异常及片源域名。
+                            diagnostics.capture(site.getKey(), site.getApi(), error);
+                            throw error;
+                        }
                     });
                 }, () -> taskId.get() == id && !Thread.currentThread().isInterrupted(), (site, reason) -> {
                     SourceHealth.get().fail("home:" + site.getKey());
-                    SpiderDebug.log("home", "key=%s,fallback=%s", site.getKey(), reason);
+                    // 汇总本轮各类来源失败次数。
+                    diagnostics.failed(reason);
                 });
+                // 每轮只导出一次结果汇总及代表异常。
+                // 按异常标记写入脱敏诊断缓冲。
+                DiagnosticLog.record("home", diagnostics.report(loaded == null ? null : loaded.source().getKey()), true);
                 // 在主线程确认首页轮次并同步来源和内容。
                 postHome(id, config, initial, loaded);
                 return loaded == null ? Result.empty() : loaded.value();
@@ -112,7 +124,13 @@ public class SiteViewModel extends ViewModel {
             } catch (CancellationException e) {
                 SpiderDebug.log("home", "key=%s,replaced=true", initial.getKey());
             } catch (Exception e) {
-                SpiderDebug.log("home", "key=%s,error=%s", initial.getKey(), e.toString());
+                // 汇总本轮各类来源失败次数。
+                diagnostics.failed(e.getClass().getSimpleName());
+                // 保存首个真实异常及片源域名。
+                diagnostics.capture(initial.getKey(), initial.getApi(), e);
+                // 每轮只导出一次结果汇总及代表异常。
+                // 按异常标记写入脱敏诊断缓冲。
+                DiagnosticLog.record("home", diagnostics.report(null), true);
                 // 在主线程确认首页轮次并同步来源和内容。
                 postHome(id, config, initial, null);
             }
