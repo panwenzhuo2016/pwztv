@@ -82,6 +82,16 @@
       "mirrors": [
         "https://cdn.jsdelivr.net/gh/suxuang/myIPTV@main/ipv4.m3u"
       ]
+    },
+    {
+      "id": "wwb",
+      "name": "国内补充",
+      "url": "https://raw.githubusercontent.com/wwb521/live/main/tv.m3u",
+      "snapshot": "sources/wwb.m3u",
+      "domestic": true,
+      "mirrors": [
+        "https://cdn.jsdelivr.net/gh/wwb521/live@main/tv.m3u"
+      ]
     }
   ]
 }
