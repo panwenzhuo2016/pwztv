@@ -69,6 +69,10 @@ android {
         resources {
             exclude 'META-INF/beans.xml'
             exclude 'META-INF/versions/9/OSGI-INF/MANIFEST.MF'
+            // Picnic代码已被R8移除，排除对应算法数据。
+            exclude 'org/bouncycastle/pqc/crypto/picnic/lowmcL1.bin.properties'
+            exclude 'org/bouncycastle/pqc/crypto/picnic/lowmcL3.bin.properties'
+            exclude 'org/bouncycastle/pqc/crypto/picnic/lowmcL5.bin.properties'
         }
     }
 
