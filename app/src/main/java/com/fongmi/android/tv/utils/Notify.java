@@ -40,7 +40,7 @@ public class Notify {
     // 保留原始异常供设置页复制诊断。
     public static String getError(int resId, Throwable e) {
         String message = ResUtil.getString(resId) + (TextUtils.isEmpty(e.getMessage()) ? "" : "\n" + e.getMessage());
-        // 先记后台摘要，短暂保存待显示的原始异常。
+        // 保留程序异常堆栈并短暂关联显示信息。
         DiagnosticLog.prepareVisible(message, e);
         return message;
     }

@@ -45,9 +45,9 @@ public class DiagnosticSummaryTest {
         // 仅保留异常并排除正常取消与业务数据。
         assertTrue(RecentLogBuffer.useful("notice", "Value https of type java.lang.String cannot be converted to JSONObject", false));
         // 仅保留异常并排除正常取消与业务数据。
-        assertTrue(RecentLogBuffer.useful("home", "result=unavailable,failures={timeout=1}", true));
+        assertFalse(RecentLogBuffer.useful("home", "result=unavailable,failures={timeout=1}", true));
         // 仅保留异常并排除正常取消与业务数据。
-        assertTrue(RecentLogBuffer.useful("parse", "java.net.SocketTimeoutException: timeout", true));
+        assertFalse(RecentLogBuffer.useful("parse", "java.net.SocketTimeoutException: timeout", true));
     }
 
     // 验证重复异常合并计数且不同域名不会误合并。
@@ -57,11 +57,11 @@ public class DiagnosticSummaryTest {
         RecentLogBuffer buffer = new RecentLogBuffer(now::get);
         for (int i = 0; i < 30; i++) {
             // 区分业务摘要与异常并保留诊断信息。
-            buffer.append("home", "java.net.UnknownHostException: video.example", true);
+            buffer.append("parse", "java.lang.IllegalStateException: video.example", true);
             now.addAndGet(1000);
         }
         // 区分业务摘要与异常并保留诊断信息。
-        buffer.append("home", "java.net.UnknownHostException: other.example", true);
+        buffer.append("parse", "java.lang.IllegalStateException: other.example", true);
         // 将有限日志编码为可恢复的本地快照。
         JsonArray saved = JsonParser.parseString(buffer.encode()).getAsJsonArray();
         assertEquals(2, saved.size());
@@ -76,9 +76,11 @@ public class DiagnosticSummaryTest {
         assertEquals(buffer.export(), restored.export());
         now.addAndGet(TimeUnit.MINUTES.toMillis(1));
         // 区分业务摘要与异常并保留诊断信息。
-        restored.append("home", "java.net.UnknownHostException: video.example", true);
+        restored.append("parse", "java.lang.IllegalStateException: video.example", true);
         // 将有限日志编码为可恢复的本地快照。
-        assertEquals(3, JsonParser.parseString(restored.encode()).getAsJsonArray().size());
+        JsonArray merged = JsonParser.parseString(restored.encode()).getAsJsonArray();
+        assertEquals(2, merged.size());
+        assertEquals(31, merged.get(0).getAsJsonObject().get("count").getAsInt());
         now.addAndGet(RecentLogBuffer.RETENTION_MS + 1);
         // 导出按时间排列的最近一小时诊断文本。
         assertEquals("", restored.export());

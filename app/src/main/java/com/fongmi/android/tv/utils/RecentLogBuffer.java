@@ -19,12 +19,9 @@ import java.util.regex.Pattern;
 public final class RecentLogBuffer {
     public static final long RETENTION_MS = TimeUnit.HOURS.toMillis(1);
     public static final int MAX_CHARS = 96 * 1024;
-    public static final int MAX_BACKGROUND_CHARS = 100;
     private static final int MAX_ENTRIES = 2048;
     private static final String TRUNCATED = " [truncated]";
-    private static final long MERGE_MS = TimeUnit.MINUTES.toMillis(1);
     private static final Pattern CANCELED = Pattern.compile("(?m)^(?:Caused by: )?java\\.(?:lang\\.InterruptedException|util\\.concurrent\\.CancellationException)\\b|(?:^|\\n)(?:Caused by: )?(?:java\\.io\\.(?:InterruptedIOException|IOException): )?(?:Canceled|Home request canceled|interrupted)(?:\\s|$)");
-    private static final Pattern STACK = Pattern.compile("(?m)^\\s*(?:at [\\w.$/]+\\([^\\r\\n]*\\)|Caused by: |Suppressed: )");
     private static final Pattern URL = Pattern.compile("https?://[^\\s\"'<>]+", Pattern.CASE_INSENSITIVE);
     private static final Pattern SECRET = Pattern.compile("(?i)(authorization|(?:set-)?cookie|password|token|secret|api[_-]?key|access[_-]?token)([\"']?\\s*[:=]\\s*)[^\\r\\n,}]+");
     private final ArrayDeque<Entry> entries = new ArrayDeque<>();
@@ -64,41 +61,41 @@ public final class RecentLogBuffer {
 
     // 区分业务摘要与异常并保留诊断信息。
     public synchronized void append(String tag, String message, boolean error) {
-        // 仅屏幕异常保留详情，后台正文最多百字。
+        // 仅记录有效异常并保留脱敏后的完整堆栈。
         append(tag, message, error, false);
     }
 
-    // 仅屏幕异常保留详情，后台正文最多百字。
+    // 仅记录有效异常并保留脱敏后的完整堆栈。
     public synchronized void append(String tag, String message, boolean error, boolean visible) {
-        if (message == null || message.isBlank()) return;
+        // 过滤业务、运行、取消和纯网络错误。
+        if (!useful(tag, message, error)) return;
         String source = tag == null ? "app" : tag;
-        // 识别旧日志中的异常标签与堆栈。
-        error |= isError(source, message);
         // 统一整理摘要与异常并遮蔽敏感信息。
-        String text = prepare(source, message, visible);
+        String text = prepare(source, message);
         // 淘汰过期条目与超出容量的最早日志。
         trim();
         long now = clock.getAsLong();
-        // 合并一分钟内内容相同的异常。
+        // 合并当前保留窗口内内容相同的异常。
         // 保存异常显示状态及重复计数时间范围。
-        store(new Entry(now, text, error, visible, 1, now));
+        store(new Entry(now, text, true, visible, 1, now));
         // 淘汰过期条目与超出容量的最早日志。
         trim();
     }
 
-    // 仅保留异常并排除正常取消与业务数据。
+    // 过滤业务、运行、取消和纯网络错误。
     public static boolean useful(String tag, String message, boolean error) {
         if (message == null || message.isBlank() || CANCELED.matcher(message).find()) return false;
-        // 识别旧日志中的异常标签与堆栈。
-        // 识别提示中的异常文本而非普通操作提示。
-        return error || isError(tag, message) || ("notice".equals(tag) && DiagnosticError.isException(message));
+        // 去除播放日志前缀后识别真实异常内容。
+        if (!DiagnosticError.containsException(message)) return false;
+        // 仅过滤网络异常链，混有程序异常时仍保留。
+        return !DiagnosticError.isRoutineNetwork(message);
     }
 
-    // 合并一分钟内内容相同的异常。
+    // 合并当前保留窗口内内容相同的异常。
     private void store(Entry entry) {
         String key = entry.visible + "\0" + entry.text;
         Entry previous = repeated.get(key);
-        if (entry.error && previous != null && previous.error && entry.last - previous.time <= MERGE_MS) {
+        if (previous != null) {
             previous.count = (int) Math.min(Integer.MAX_VALUE, (long) previous.count + entry.count);
             previous.last = Math.max(previous.last, entry.last);
             return;
@@ -108,22 +105,15 @@ public final class RecentLogBuffer {
         chars += entry.text.length();
     }
 
-    // 识别旧日志中的异常标签与堆栈。
-    private static boolean isError(String tag, String message) {
-        return "error".equals(tag) || STACK.matcher(message).find();
-    }
-
     // 统一整理摘要与异常并遮蔽敏感信息。
-    private static String prepare(String tag, String message, boolean visible) {
+    private static String prepare(String tag, String message) {
         String text = tag.equals("aesX") || tag.equals("rsaX") ? "[crypto details omitted]" : message;
         // 遮蔽链接凭据与常见认证字段。
         text = redact(text);
-        if (!visible) {
-            // 优先保留播放源、错误码与主异常链根因。
-            text = DiagnosticError.backgroundSummary(text);
+        if ("home".equals(tag) && text.startsWith("result=")) {
+            int end = text.indexOf('\n');
+            text = end < 0 ? "" : text.substring(end + 1);
         }
-        // 按字符预算截断且保留完整字符。
-        if (!visible) text = shorten(text, MAX_BACKGROUND_CHARS);
         // 按字符预算截断且保留完整字符。
         return shorten(tag + ": " + text, MAX_CHARS);
     }
@@ -139,7 +129,15 @@ public final class RecentLogBuffer {
     // 淘汰过期条目与超出容量的最早日志。
     private void trim() {
         long cutoff = clock.getAsLong() - RETENTION_MS;
-        while (!entries.isEmpty() && (entries.peekFirst().time < cutoff || chars > MAX_CHARS || entries.size() > MAX_ENTRIES)) {
+        var iterator = entries.iterator();
+        while (iterator.hasNext()) {
+            Entry removed = iterator.next();
+            if (removed.last >= cutoff) continue;
+            iterator.remove();
+            chars -= removed.text.length();
+            repeated.remove(removed.visible + "\0" + removed.text, removed);
+        }
+        while (!entries.isEmpty() && (chars > MAX_CHARS || entries.size() > MAX_ENTRIES)) {
             Entry removed = entries.removeFirst();
             chars -= removed.text.length();
             repeated.remove(removed.visible + "\0" + removed.text, removed);
@@ -189,24 +187,22 @@ public final class RecentLogBuffer {
             long time = item.get("time").getAsLong();
             if (time < previous) throw new IllegalArgumentException("Unordered diagnostic snapshot");
             previous = time;
-            if (time < now - RETENTION_MS || time > now) continue;
+            if (time > now) continue;
             String stored = item.get("text").getAsString();
             int separator = stored.indexOf(": ");
             String tag = separator < 0 ? "app" : stored.substring(0, separator);
             String message = separator < 0 ? stored : stored.substring(separator + 2);
-            // 识别旧日志中的异常标签与堆栈。
-            boolean error = item.has("error") ? item.get("error").getAsBoolean() : isError(tag, message);
-            // 仅保留异常并排除正常取消与业务数据。
-            if (!useful(tag, message, error)) continue;
-            error = true;
+            // 过滤业务、运行、取消和纯网络错误。
+            if (!useful(tag, message, true)) continue;
             boolean visible = item.has("visible") && item.get("visible").getAsBoolean();
             int count = item.has("count") ? item.get("count").getAsInt() : 1;
             long last = item.has("last") ? item.get("last").getAsLong() : time;
             if (count < 1 || last < time || last > now) throw new IllegalArgumentException("Invalid diagnostic count or time");
+            if (last < now - RETENTION_MS) continue;
             // 统一整理摘要与异常并遮蔽敏感信息。
-            // 合并一分钟内内容相同的异常。
+            // 合并当前保留窗口内内容相同的异常。
             // 保存异常显示状态及重复计数时间范围。
-            restored.store(new Entry(time, prepare(tag, message, visible), error, visible, count, last));
+            restored.store(new Entry(time, prepare(tag, message), true, visible, count, last));
         }
         entries.clear();
         entries.addAll(restored.entries);

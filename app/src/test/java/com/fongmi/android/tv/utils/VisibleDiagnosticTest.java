@@ -12,8 +12,8 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 public class VisibleDiagnosticTest {
-    // 验证后台程序异常一律限百字并保留重复计数。
-    @Test public void limitsEveryBackgroundErrorAndRestoresShortRecords() {
+    // 验证后台程序异常保留完整堆栈与重复计数。
+    @Test public void preservesBackgroundErrorStacksAndRestoresDeduplication() {
         // 注入时钟便于验证一小时保留边界。
         RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
         String error = "java.lang.ArrayIndexOutOfBoundsException: length=1; index=1\n"
@@ -28,7 +28,7 @@ public class VisibleDiagnosticTest {
         JsonObject record = saved.get(0).getAsJsonObject();
         assertEquals(3, record.get("count").getAsInt());
         assertFalse(record.get("visible").getAsBoolean());
-        assertTrue(record.get("text").getAsString().substring("SpiderDebug: ".length()).length() <= 100);
+        assertEquals("SpiderDebug: " + error, record.get("text").getAsString());
         // 注入时钟便于验证一小时保留边界。
         RecentLogBuffer restored = new RecentLogBuffer(() -> 10_000_000);
         // 恢复仍在一小时范围内的日志快照。
@@ -44,7 +44,7 @@ public class VisibleDiagnosticTest {
         String error = "org.json.JSONException: empty response";
         // 区分业务摘要与异常并保留诊断信息。
         buffer.append("error", error, true);
-        // 仅屏幕异常保留详情，后台正文最多百字。
+        // 仅记录有效异常并保留脱敏后的完整堆栈。
         buffer.append("error", error, true, true);
         // 将有限日志编码为可恢复的本地快照。
         JsonArray saved = JsonParser.parseString(buffer.encode()).getAsJsonArray();
@@ -53,8 +53,8 @@ public class VisibleDiagnosticTest {
         assertTrue(saved.get(1).getAsJsonObject().get("visible").getAsBoolean());
     }
 
-    // 验证真实显示后才保留原始异常与显示调用链。
-    @Test public void retainsFullDetailsOnlyAfterScreenReportsError() throws Exception {
+    // 验证程序异常留全且屏幕仅补充真实错误详情。
+    @Test public void retainsSoftwareDetailsAndIgnoresNetworkAndBusinessNotices() throws Exception {
         DiagnosticLog adapter = mock(DiagnosticLog.class);
         // 注入时钟便于验证一小时保留边界。
         RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
@@ -70,19 +70,25 @@ public class VisibleDiagnosticTest {
         pending.set(adapter, new ScreenErrorContext(() -> 10_000_000));
         current.set(null, adapter);
         try {
+            // 保留程序异常堆栈并短暂关联显示信息。
+            DiagnosticLog.prepareVisible("连接失败", new java.net.SocketException("Connection reset"));
+            // 实际显示异常时保留原始信息和显示调用链。
+            DiagnosticLog.visible("notice", "连接失败", false);
+            // 实际显示异常时保留原始信息和显示调用链。
+            DiagnosticLog.visible("vod-screen", "java.net.SocketException: Connection reset", true);
             // 实际显示异常时保留原始信息和显示调用链。
             DiagnosticLog.visible("notice", "已复制", false);
             // 将有限日志编码为可恢复的本地快照。
             assertEquals(0, JsonParser.parseString(buffer.encode()).getAsJsonArray().size());
             String message = "读取配置失败";
             IllegalStateException error = new IllegalStateException("root failure " + "x".repeat(200));
-            // 先记后台摘要，短暂保存待显示的原始异常。
+            // 保留程序异常堆栈并短暂关联显示信息。
             DiagnosticLog.prepareVisible(message, error);
             // 将有限日志编码为可恢复的本地快照。
             JsonArray before = JsonParser.parseString(buffer.encode()).getAsJsonArray();
             assertEquals(1, before.size());
             assertFalse(before.get(0).getAsJsonObject().get("visible").getAsBoolean());
-            assertTrue(before.get(0).getAsJsonObject().get("text").getAsString().substring("error: ".length()).length() <= 100);
+            assertTrue(before.get(0).getAsJsonObject().get("text").getAsString().contains(error.getMessage()));
             // 实际显示异常时保留原始信息和显示调用链。
             DiagnosticLog.visible("notice", message, false);
             // 实际显示异常时保留原始信息和显示调用链。
@@ -91,14 +97,13 @@ public class VisibleDiagnosticTest {
             DiagnosticLog.visible("notice", "Value https of type java.lang.String cannot be converted to JSONObject", false);
             // 将有限日志编码为可恢复的本地快照。
             JsonArray after = JsonParser.parseString(buffer.encode()).getAsJsonArray();
-            assertEquals(4, after.size());
+            assertEquals(3, after.size());
             String original = after.get(1).getAsJsonObject().get("text").getAsString();
             assertTrue(after.get(1).getAsJsonObject().get("visible").getAsBoolean());
             assertTrue(original.contains(error.getMessage()));
             assertTrue(original.contains("VisibleDiagnosticTest.java:"));
             assertTrue(original.contains("Screen display call site"));
-            assertTrue(after.get(2).getAsJsonObject().get("text").getAsString().contains("播放失败"));
-            assertTrue(after.get(3).getAsJsonObject().get("text").getAsString().contains("cannot be converted to JSONObject"));
+            assertTrue(after.get(2).getAsJsonObject().get("text").getAsString().contains("cannot be converted to JSONObject"));
             // 注入时钟便于验证一小时保留边界。
             RecentLogBuffer restored = new RecentLogBuffer(() -> 10_000_000);
             // 恢复仍在一小时范围内的日志快照。

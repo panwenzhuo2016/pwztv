@@ -5,88 +5,57 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class DiagnosticError {
-    private static final int MAX_SOURCE_CHARS = 24;
-    private static final Pattern PLAYER = Pattern.compile("^tag=[^\\r\\n]*?,key=([^\\r\\n]*?),code=(\\d+)\\s*:\\s*");
+    private static final Pattern PLAYER = Pattern.compile("^tag=[^\\r\\n]*?,key=([^\\r\\n]*?),code=(\\d+)\\s*:\\s*|^source=[^\\r\\n]*? \\| ");
     private static final Pattern EXCEPTION = Pattern.compile("(?m)^[\\t ]*(?:(?:Caused by:|Suppressed:)[\\t ]*)?((?:[\\w$]+\\.)+[\\w$]+|[\\w$]*(?:Exception|Error)|Throwable)(?=:|[\\t ]*$)[^\\r\\n]*");
-    private static final Set<String> NETWORK = Set.of("java.net.SocketException", "java.net.SocketTimeoutException",
-            "java.net.ConnectException", "java.net.NoRouteToHostException", "java.net.UnknownHostException");
+    private static final Set<String> NETWORK = Set.of("SocketException", "SocketTimeoutException", "ConnectException",
+            "NoRouteToHostException", "UnknownHostException", "UnknownServiceException", "ProtocolException",
+            "StreamResetException", "ConnectionShutdownException", "TimeoutException", "SSLException",
+            "SSLHandshakeException", "SSLPeerUnverifiedException", "SSLProtocolException", "SSLKeyException",
+            "InvalidResponseCodeException");
     private static final Set<String> WRAPPERS = Set.of("java.util.concurrent.ExecutionException",
-            "java.util.concurrent.CompletionException");
+            "java.util.concurrent.CompletionException", "java.io.IOException", "java.io.InterruptedIOException",
+            "androidx.media3.common.PlaybackException", "androidx.media3.exoplayer.ExoPlaybackException",
+            "com.google.android.exoplayer2.PlaybackException", "com.google.android.exoplayer2.ExoPlaybackException",
+            "androidx.media3.datasource.HttpDataSource$HttpDataSourceException",
+            "androidx.media3.datasource.DataSourceException");
+    private static final Pattern IO_NETWORK = Pattern.compile("(?i)^(?:java\\.io\\.)?(?:InterruptedIO|IO)Exception: (?:Canceled|interrupted|timeout|connection reset|broken pipe|failed to connect|unable to resolve host)(?:\\b|$)");
 
-    // 优先保留播放源、错误码与主异常链根因。
-    public static String backgroundSummary(String message) {
-        Matcher player = PLAYER.matcher(message);
-        if (player.find()) {
-            String source = player.group(1).split("@@@", 2)[0];
-            int end = Math.min(source.length(), MAX_SOURCE_CHARS);
-            if (end > 0 && Character.isHighSurrogate(source.charAt(end - 1))) end--;
-            String context = "source=" + source.substring(0, end) + ",code=" + player.group(2);
-            // 提取主异常根因并排除附带异常分支。
-            String reason = rootSummary(message.substring(player.end()));
-            Matcher exception = EXCEPTION.matcher(reason);
-            if (exception.lookingAt()) {
-                String type = exception.group(1);
-                if (type.endsWith("Exception") || type.endsWith("Error")) {
-                    int name = Math.max(type.lastIndexOf('.'), type.lastIndexOf('$')) + 1;
-                    reason = type.substring(name) + reason.substring(type.length());
-                }
-            }
-            return context + " | " + reason;
-        }
-        // 仅将明确的网络异常链归为普通故障。
-        if (isRoutineNetwork(message)) {
-            // 摘出网络错误原因并附带原始业务上下文。
-            return networkSummary(message);
-        }
-        // 提取主异常根因并排除附带异常分支。
-        return rootSummary(message);
-    }
-
-    // 提取主异常根因并排除附带异常分支。
-    private static String rootSummary(String message) {
-        Matcher matcher = EXCEPTION.matcher(message);
-        String reason = null;
-        while (matcher.find()) {
-            String line = matcher.group();
-            if (line.stripLeading().startsWith("Suppressed:")) continue;
-            if (reason == null || line.startsWith("Caused by:")) {
-                reason = line.substring(line.indexOf(matcher.group(1))).trim();
-            }
-        }
-        return reason == null ? message : reason;
-    }
-
-    // 识别提示中的异常文本而非普通操作提示。
+    // 识别真实异常并忽略人为附加的显示调用链。
     public static boolean isException(String message) {
-        return message != null && (EXCEPTION.matcher(message).find() || message.contains("cannot be converted to"));
+        if (message == null) return false;
+        Matcher matcher = EXCEPTION.matcher(message);
+        while (matcher.find()) {
+            if (!matcher.group().contains("Throwable: Screen display call site")) return true;
+        }
+        return message.contains("cannot be converted to");
     }
 
-    // 仅将明确的网络异常链归为普通故障。
+    // 仅过滤网络异常链，混有程序异常时仍保留。
     public static boolean isRoutineNetwork(String message) {
         if (message == null) return false;
+        Matcher player = PLAYER.matcher(message);
+        if (player.find()) message = message.substring(player.end());
         boolean network = false;
         Matcher matcher = EXCEPTION.matcher(message);
         while (matcher.find()) {
             String type = matcher.group(1);
-            if (NETWORK.contains(type)) network = true;
-            else if (!WRAPPERS.contains(type)) return false;
+            String line = matcher.group().trim();
+            String reason = line.substring(line.indexOf(type));
+            int name = Math.max(type.lastIndexOf('.'), type.lastIndexOf('$')) + 1;
+            if (NETWORK.contains(type.substring(name)) || IO_NETWORK.matcher(reason).find()) network = true;
+            else if (!WRAPPERS.contains(type) && !reason.equals(type + ": Source error")
+                    && !reason.equals("java.lang.Throwable: Screen display call site")
+                    && !reason.equals("Throwable: Screen display call site")) return false;
         }
         return network;
     }
 
-    // 摘出网络错误原因并附带原始业务上下文。
-    public static String networkSummary(String message) {
-        Matcher matcher = EXCEPTION.matcher(message);
-        while (matcher.find()) {
-            if (!NETWORK.contains(matcher.group(1))) continue;
-            String line = matcher.group().trim();
-            int type = line.indexOf(matcher.group(1));
-            String context = message.substring(0, matcher.start()).trim();
-            // 丢弃包装异常堆栈，只保留前置业务信息。
-            Matcher previous = EXCEPTION.matcher(context);
-            if (previous.find()) context = context.substring(0, previous.start()).trim();
-            return line.substring(type) + (context.isEmpty() ? "" : " | " + context.replace('\n', ' ').replace('\r', ' '));
-        }
-        return message;
+    // 去除播放日志前缀后识别真实异常内容。
+    public static boolean containsException(String message) {
+        if (message == null) return false;
+        Matcher player = PLAYER.matcher(message);
+        if (player.find()) message = message.substring(player.end());
+        // 识别真实异常并忽略人为附加的显示调用链。
+        return isException(message);
     }
 }

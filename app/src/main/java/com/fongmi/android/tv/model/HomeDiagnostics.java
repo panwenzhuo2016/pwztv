@@ -35,7 +35,7 @@ final class HomeDiagnostics {
         }
         StringWriter stack = new StringWriter();
         error.printStackTrace(new PrintWriter(stack));
-        // 仅将明确的网络异常链归为普通故障。
+        // 仅过滤网络异常链，混有程序异常时仍保留。
         boolean network = DiagnosticError.isRoutineNetwork(stack.toString());
         if (example != null && network) return;
         example = "example key=" + key + ",host=" + (host == null ? "plugin" : host) + "\n" + stack;
