@@ -81,7 +81,10 @@ android {
 
     android.applicationVariants.configureEach { variant ->
         variant.outputs.configureEach { output ->
-            outputFileName = "${variant.productFlavors[0].name}-${variant.productFlavors[1].name}.apk"
+            // 按设备类型与架构生成简短安装包名。
+            def deviceSuffix = variant.productFlavors[0].name == 'leanback' ? '-tv' : ''
+            def abiSuffix = variant.productFlavors[1].name == 'armeabi_v7a' ? '32' : ''
+            outputFileName = "p${deviceSuffix}${abiSuffix}.apk"
         }
     }
 

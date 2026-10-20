@@ -14,10 +14,10 @@
 
 | 安装包 | 设备 |
 | --- | --- |
-| `mobile-arm64_v8a.apk` | 64 位 ARM 安卓手机、平板 |
-| `mobile-armeabi_v7a.apk` | 32 位 ARM 安卓手机、平板，需 `--include-32bit` |
-| `leanback-arm64_v8a.apk` | 64 位 ARM 安卓电视、盒子、投影 |
-| `leanback-armeabi_v7a.apk` | 32 位 ARM 安卓电视、盒子、投影，需 `--include-32bit` |
+| `p.apk` | 64 位 ARM 安卓手机、平板 |
+| `p32.apk` | 32 位 ARM 安卓手机、平板，需 `--include-32bit` |
+| `p-tv.apk` | 64 位 ARM 安卓电视、盒子、投影 |
+| `p-tv32.apk` | 32 位 ARM 安卓电视、盒子、投影，需 `--include-32bit` |
 
 按设备的安卓系统架构选择安装包。极米需支持安装第三方安卓应用；iPhone、iPad 不支持这些 APK。
 

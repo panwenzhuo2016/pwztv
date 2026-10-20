@@ -19,6 +19,12 @@ ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "Release"
 SIGNING = ROOT / ".signing"
 MODES = ("mobile", "leanback")
+APK_NAMES = {
+    ("mobile", "arm64_v8a"): "p.apk",
+    ("leanback", "arm64_v8a"): "p-tv.apk",
+    ("mobile", "armeabi_v7a"): "p32.apk",
+    ("leanback", "armeabi_v7a"): "p-tv32.apk",
+}
 PYTHON_NATIVE_PREFIXES = (
     "libpython", "libchaquopy", "libcrypto_python", "libssl_python", "libsqlite3_python",
     "libcrypto_chaquopy", "libssl_chaquopy", "libsqlite3_chaquopy",
@@ -148,7 +154,7 @@ def main():
     # 解析参数并选择架构与Python支持。
     options = build_options()
     abis = options.abis
-    expected = {f"{mode}-{abi}.apk" for mode in MODES for abi in abis}
+    expected = {APK_NAMES[(mode, abi)] for mode in MODES for abi in abis}
     if os.name != "nt":
         raise RuntimeError("Run build_all.bat on Windows.")
     env = dict(os.environ)
