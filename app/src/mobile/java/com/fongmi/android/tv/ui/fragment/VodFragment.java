@@ -1,15 +1,11 @@
 package com.fongmi.android.tv.ui.fragment;
 
-import android.app.Activity;
-import android.content.Intent;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
@@ -38,15 +34,12 @@ import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.ui.activity.HistoryActivity;
 import com.fongmi.android.tv.ui.activity.KeepActivity;
 import com.fongmi.android.tv.ui.activity.SearchActivity;
-import com.fongmi.android.tv.ui.activity.VideoActivity;
 import com.fongmi.android.tv.ui.adapter.TypeAdapter;
 import com.fongmi.android.tv.ui.base.BaseFragment;
 import com.fongmi.android.tv.ui.dialog.FilterDialog;
 import com.fongmi.android.tv.ui.dialog.HistoryDialog;
-import com.fongmi.android.tv.ui.dialog.LinkDialog;
 import com.fongmi.android.tv.ui.dialog.ReceiveDialog;
 import com.fongmi.android.tv.ui.dialog.SiteDialog;
-import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -98,14 +91,14 @@ public class VodFragment extends BaseFragment implements ConfigCallback, SiteCal
         setLogo();
     }
 
+    // 绑定首页操作，保留筛选与返回顶部入口。
     @Override
     protected void initEvent() {
+        // 返回顶部后恢复筛选按钮。
         mBinding.top.setOnClickListener(this::onTop);
         mBinding.logo.setOnClickListener(this::onLogo);
-        mBinding.link.setOnClickListener(this::onLink);
         mBinding.title.setOnClickListener(this::onSite);
         mBinding.filter.setOnClickListener(this::onFilter);
-        mBinding.filter.setOnLongClickListener(this::onLink);
         mBinding.toolbar.setOnMenuItemClickListener(this::onMenuItemClick);
         mBinding.appBar.addOnOffsetChangedListener((appBarLayout, verticalOffset) -> {
             float factor = Math.abs(verticalOffset * 1f / appBarLayout.getTotalScrollRange());
@@ -118,6 +111,7 @@ public class VodFragment extends BaseFragment implements ConfigCallback, SiteCal
             public void onPageSelected(int position) {
                 mBinding.type.smoothScrollToPosition(position);
                 mAdapter.setActivated(position);
+                // 仅在当前分类支持筛选时显示筛选按钮。
                 setFabVisible(position);
             }
         });
@@ -142,23 +136,20 @@ public class VodFragment extends BaseFragment implements ConfigCallback, SiteCal
         if (result.hasMsg()) Notify.show(result.getMsg());
         mAdapter.addAll(mResult = result);
         mBinding.pager.getAdapter().notifyDataSetChanged();
+        // 仅在当前分类支持筛选时显示筛选按钮。
         setFabVisible(0);
         hideProgress();
     }
 
+    // 仅在当前分类支持筛选时显示筛选按钮。
     private void setFabVisible(int position) {
+        mBinding.top.setVisibility(View.INVISIBLE);
         if (mAdapter.getItemCount() == 0) {
-            mBinding.top.setVisibility(View.INVISIBLE);
-            mBinding.link.setVisibility(View.VISIBLE);
             mBinding.filter.setVisibility(View.GONE);
         } else if (!mAdapter.get(position).getFilters().isEmpty()) {
-            mBinding.top.setVisibility(View.INVISIBLE);
-            mBinding.link.setVisibility(View.GONE);
             mBinding.filter.show();
-        } else if (position == 0 || mAdapter.get(position).getFilters().isEmpty()) {
-            mBinding.top.setVisibility(View.INVISIBLE);
+        } else {
             mBinding.filter.setVisibility(View.GONE);
-            mBinding.link.show();
         }
     }
 
@@ -168,16 +159,11 @@ public class VodFragment extends BaseFragment implements ConfigCallback, SiteCal
         optional.ifPresent(s -> mBinding.title.setText(s));
     }
 
+    // 返回顶部后恢复筛选按钮。
     private void onTop(View view) {
         getFragment().scrollToTop();
         mBinding.top.setVisibility(View.INVISIBLE);
         if (mBinding.filter.getVisibility() == View.INVISIBLE) mBinding.filter.show();
-        else if (mBinding.link.getVisibility() == View.INVISIBLE) mBinding.link.show();
-    }
-
-    private boolean onLink(View view) {
-        LinkDialog.create(this).launcher(launcher).show();
-        return true;
     }
 
     private void onLogo(View view) {
@@ -220,6 +206,7 @@ public class VodFragment extends BaseFragment implements ConfigCallback, SiteCal
     private void homeContent() {
         setTitle();
         showProgress();
+        // 仅在当前分类支持筛选时显示筛选按钮。
         setFabVisible(0);
         mAdapter.clear();
         // 首页单源最多等待八秒并自动选择可用来源。
@@ -321,11 +308,6 @@ public class VodFragment extends BaseFragment implements ConfigCallback, SiteCal
         super.onDestroyView();
         EventBus.getDefault().unregister(this);
     }
-
-    private final ActivityResultLauncher<Intent> launcher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) return;
-        VideoActivity.file(requireActivity(), FileChooser.getPathFromUri(result.getData().getData()));
-    });
 
     class PageAdapter extends FragmentStatePagerAdapter {
 
