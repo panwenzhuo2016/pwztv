@@ -4,6 +4,9 @@
     <string name="app_keep">我的收藏</string>
     <string name="app_history">最近观看</string>
 
+    <!-- Setting -->
+    <string name="setting_cache">清理缓存</string>
+
     <!-- Nav -->
     <string name="nav_vod">点播</string>
     <string name="nav_live">直播</string>

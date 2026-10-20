@@ -12,37 +12,23 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.viewbinding.ViewBinding;
 
-import com.fongmi.android.tv.BuildConfig;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.Setting;
-import com.fongmi.android.tv.Updater;
-import com.fongmi.android.tv.api.config.LiveConfig;
-import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.api.config.WallConfig;
 import com.fongmi.android.tv.bean.Config;
-import com.fongmi.android.tv.bean.Live;
-import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.databinding.FragmentSettingBinding;
-import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.impl.ConfigCallback;
-import com.fongmi.android.tv.impl.LiveCallback;
-import com.fongmi.android.tv.impl.SiteCallback;
 import com.fongmi.android.tv.ui.activity.HomeActivity;
 import com.fongmi.android.tv.ui.base.BaseFragment;
 import com.fongmi.android.tv.ui.dialog.ConfigDialog;
 import com.fongmi.android.tv.ui.dialog.HistoryDialog;
-import com.fongmi.android.tv.ui.dialog.LiveDialog;
-import com.fongmi.android.tv.ui.dialog.RestoreDialog;
-import com.fongmi.android.tv.ui.dialog.SiteDialog;
 import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.FileUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.ResUtil;
-import com.github.catvod.bean.Doh;
-import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Path;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
@@ -50,14 +36,11 @@ import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 
-import java.util.ArrayList;
-import java.util.List;
+public class SettingFragment extends BaseFragment implements ConfigCallback {
 
-public class SettingFragment extends BaseFragment implements ConfigCallback, SiteCallback, LiveCallback {
-
+    private static final int WALL_TYPE = 2;
     private FragmentSettingBinding mBinding;
     private String[] size;
-    private int type;
 
     public static SettingFragment newInstance() {
         return new SettingFragment();
@@ -65,16 +48,6 @@ public class SettingFragment extends BaseFragment implements ConfigCallback, Sit
 
     private String getSwitch(boolean value) {
         return getString(value ? R.string.setting_on : R.string.setting_off);
-    }
-
-    private int getDohIndex() {
-        return Math.max(0, VodConfig.get().getDoh().indexOf(Doh.objectFrom(Setting.getDoh())));
-    }
-
-    private String[] getDohList() {
-        List<String> list = new ArrayList<>();
-        for (Doh item : VodConfig.get().getDoh()) list.add(item.getName());
-        return list.toArray(new String[0]);
     }
 
     private HomeActivity getRoot() {
@@ -86,19 +59,18 @@ public class SettingFragment extends BaseFragment implements ConfigCallback, Sit
         return mBinding = FragmentSettingBinding.inflate(inflater, container, false);
     }
 
+    // 初始化精简设置与壁纸状态。
     @Override
     protected void initView() {
         EventBus.getDefault().register(this);
-        mBinding.vodUrl.setText(VodConfig.getDesc());
-        mBinding.liveUrl.setText(LiveConfig.getDesc());
         mBinding.wallUrl.setText(WallConfig.getDesc());
-        mBinding.versionText.setText(BuildConfig.VERSION_NAME);
+        // 显示无痕模式与图片尺寸。
         setOtherText();
         setCacheText();
     }
 
+    // 显示无痕模式与图片尺寸。
     private void setOtherText() {
-        mBinding.dohText.setText(getDohList()[getDohIndex()]);
         mBinding.incognitoText.setText(getSwitch(Setting.isIncognito()));
         mBinding.sizeText.setText((size = ResUtil.getStringArray(R.array.select_size))[Setting.getSize()]);
     }
@@ -112,56 +84,45 @@ public class SettingFragment extends BaseFragment implements ConfigCallback, Sit
         });
     }
 
+    // 绑定保留的设置入口。
     @Override
     protected void initEvent() {
-        mBinding.vod.setOnClickListener(this::onVod);
-        mBinding.doh.setOnClickListener(this::setDoh);
-        mBinding.live.setOnClickListener(this::onLive);
+        // 打开壁纸地址设置。
         mBinding.wall.setOnClickListener(this::onWall);
         mBinding.size.setOnClickListener(this::setSize);
         mBinding.cache.setOnClickListener(this::onCache);
-        mBinding.backup.setOnClickListener(this::onBackup);
         mBinding.player.setOnClickListener(this::onPlayer);
-        mBinding.restore.setOnClickListener(this::onRestore);
-        mBinding.version.setOnClickListener(this::onVersion);
-        mBinding.vod.setOnLongClickListener(this::onVodEdit);
-        mBinding.vodHome.setOnClickListener(this::onVodHome);
-        mBinding.live.setOnLongClickListener(this::onLiveEdit);
-        mBinding.liveHome.setOnClickListener(this::onLiveHome);
+        // 编辑当前壁纸地址。
         mBinding.wall.setOnLongClickListener(this::onWallEdit);
         mBinding.incognito.setOnClickListener(this::setIncognito);
-        mBinding.vodHistory.setOnClickListener(this::onVodHistory);
-        mBinding.liveHistory.setOnClickListener(this::onLiveHistory);
         mBinding.wallDefault.setOnClickListener(this::setWallDefault);
+        // 重新加载当前壁纸。
         mBinding.wallRefresh.setOnClickListener(this::setWallRefresh);
+        // 显示壁纸配置历史。
         mBinding.wallRefresh.setOnLongClickListener(this::onWallHistory);
     }
 
+    // 按文件权限要求加载所选壁纸。
     @Override
     public void setConfig(Config config) {
         if (config.getUrl().startsWith("file")) {
+            // 加载壁纸配置并恢复自定义背景。
             PermissionUtil.requestFile(this, allGranted -> load(config));
         } else {
+            // 加载壁纸配置并恢复自定义背景。
             load(config);
         }
     }
 
+    // 加载壁纸配置并恢复自定义背景。
     private void load(Config config) {
-        switch (config.getType()) {
-            case 0:
-                VodConfig.load(config, getCallback(0));
-                break;
-            case 1:
-                LiveConfig.load(config, getCallback(1));
-                break;
-            case 2:
-                Setting.putWall(0);
-                WallConfig.load(config, getCallback(2));
-                break;
-        }
+        Setting.putWall(0);
+        // 生成壁纸加载完成后的界面回调。
+        WallConfig.load(config, getCallback());
     }
 
-    private Callback getCallback(int type) {
+    // 生成壁纸加载完成后的界面回调。
+    private Callback getCallback() {
         return new Callback() {
             @Override
             public void start() {
@@ -173,86 +134,43 @@ public class SettingFragment extends BaseFragment implements ConfigCallback, Sit
                 Notify.show(result);
             }
 
+            // 刷新壁纸地址并结束加载提示。
             @Override
             public void success() {
-                setConfig(type);
+                // 刷新壁纸地址并结束加载提示。
+                onWallLoaded();
             }
 
+            // 提示壁纸加载失败并结束等待。
             @Override
             public void error(String msg) {
                 Notify.show(msg);
-                setConfig(type);
+                // 刷新壁纸地址并结束加载提示。
+                onWallLoaded();
             }
         };
     }
 
-    private void setConfig(int type) {
+    // 刷新壁纸地址并结束加载提示。
+    private void onWallLoaded() {
         setCacheText();
         Notify.dismiss();
         RefreshEvent.config();
-        if (type == 0) RefreshEvent.video();
     }
 
-    @Override
-    public void setSite(Site item) {
-        VodConfig.get().setHome(item);
-        RefreshEvent.video();
-    }
-
-    @Override
-    public void setLive(Live item) {
-        LiveConfig.get().setHome(item);
-    }
-
-    private void onVod(View view) {
-        ConfigDialog.create(this).launcher(launcher).type(type = 0).show();
-    }
-
-    private void onLive(View view) {
-        ConfigDialog.create(this).launcher(launcher).type(type = 1).show();
-    }
-
+    // 打开壁纸地址设置。
     private void onWall(View view) {
-        ConfigDialog.create(this).launcher(launcher).type(type = 2).show();
+        ConfigDialog.create(this).launcher(launcher).type(WALL_TYPE).show();
     }
 
-    private boolean onVodEdit(View view) {
-        ConfigDialog.create(this).launcher(launcher).type(type = 0).edit().show();
-        return true;
-    }
-
-    private boolean onLiveEdit(View view) {
-        ConfigDialog.create(this).launcher(launcher).type(type = 1).edit().show();
-        return true;
-    }
-
+    // 编辑当前壁纸地址。
     private boolean onWallEdit(View view) {
-        ConfigDialog.create(this).launcher(launcher).type(type = 2).edit().show();
+        ConfigDialog.create(this).launcher(launcher).type(WALL_TYPE).edit().show();
         return true;
-    }
-
-    private void onVodHome(View view) {
-        SiteDialog.create(this).all().show();
-    }
-
-    private void onLiveHome(View view) {
-        LiveDialog.create(this).action().show();
-    }
-
-    private void onVodHistory(View view) {
-        HistoryDialog.create(this).type(type = 0).show();
-    }
-
-    private void onLiveHistory(View view) {
-        HistoryDialog.create(this).type(type = 1).show();
     }
 
     private void onPlayer(View view) {
         getRoot().change(2);
-    }
-
-    private void onVersion(View view) {
-        Updater.create().force().start(requireActivity());
     }
 
     private void setWallDefault(View view) {
@@ -260,13 +178,16 @@ public class SettingFragment extends BaseFragment implements ConfigCallback, Sit
         RefreshEvent.wall();
     }
 
+    // 重新加载当前壁纸。
     private void setWallRefresh(View view) {
         Setting.putWall(0);
-        WallConfig.get().load(getCallback(2));
+        // 生成壁纸加载完成后的界面回调。
+        WallConfig.get().load(getCallback());
     }
 
+    // 显示壁纸配置历史。
     private boolean onWallHistory(View view) {
-        HistoryDialog.create(this).type(type = 2).show();
+        HistoryDialog.create(this).type(WALL_TYPE).show();
         return true;
     }
 
@@ -284,19 +205,6 @@ public class SettingFragment extends BaseFragment implements ConfigCallback, Sit
         }).show();
     }
 
-    private void setDoh(View view) {
-        new MaterialAlertDialogBuilder(requireActivity()).setTitle(R.string.setting_doh).setNegativeButton(R.string.dialog_negative, null).setSingleChoiceItems(getDohList(), getDohIndex(), (dialog, which) -> {
-            setDoh(VodConfig.get().getDoh().get(which));
-            dialog.dismiss();
-        }).show();
-    }
-
-    private void setDoh(Doh doh) {
-        OkHttp.dns().setDoh(doh);
-        Setting.putDoh(doh.toString());
-        mBinding.dohText.setText(doh.getName());
-    }
-
     private void onCache(View view) {
         FileUtil.clearCache(new Callback() {
             @Override
@@ -306,47 +214,10 @@ public class SettingFragment extends BaseFragment implements ConfigCallback, Sit
         });
     }
 
-    private void onBackup(View view) {
-        PermissionUtil.requestFile(this, allGranted -> AppDatabase.backup(new Callback() {
-            @Override
-            public void success() {
-                Notify.show(R.string.backup_success);
-            }
-
-            @Override
-            public void error() {
-                Notify.show(R.string.backup_fail);
-            }
-        }));
-    }
-
-    private void onRestore(View view) {
-        PermissionUtil.requestFile(this, allGranted -> RestoreDialog.create().show(requireActivity(), new Callback() {
-            @Override
-            public void success() {
-                Notify.show(R.string.restore_success);
-                setOtherText();
-                initConfig();
-            }
-
-            @Override
-            public void error() {
-                Notify.show(R.string.restore_fail);
-            }
-        }));
-    }
-
-    private void initConfig() {
-        VodConfig.get().init().load(getCallback(0));
-        LiveConfig.get().init().load();
-        WallConfig.get().init().load();
-    }
-
+    // 同步刷新后的壁纸地址。
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onRefreshEvent(RefreshEvent event) {
         if (event.getType() != RefreshEvent.Type.CONFIG) return;
-        mBinding.vodUrl.setText(VodConfig.getDesc());
-        mBinding.liveUrl.setText(LiveConfig.getDesc());
         mBinding.wallUrl.setText(WallConfig.getDesc());
     }
 
@@ -364,6 +235,7 @@ public class SettingFragment extends BaseFragment implements ConfigCallback, Sit
 
     private final ActivityResultLauncher<Intent> launcher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
         if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) return;
-        setConfig(Config.find("file:/" + FileChooser.getPathFromUri(result.getData().getData()).replace(Path.rootPath(), ""), type));
+        // 按文件权限要求加载所选壁纸。
+        setConfig(Config.find("file:/" + FileChooser.getPathFromUri(result.getData().getData()).replace(Path.rootPath(), ""), WALL_TYPE));
     });
 }
