@@ -15,6 +15,7 @@ import androidx.annotation.Nullable;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.RequestBuilder;
+import com.bumptech.glide.RequestManager;
 import com.bumptech.glide.load.DataSource;
 import com.bumptech.glide.load.engine.GlideException;
 import com.bumptech.glide.load.model.GlideUrl;
@@ -25,18 +26,15 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.impl.CustomTarget;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Json;
 import com.google.common.net.HttpHeaders;
 
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 import jahirfiquitiva.libs.textdrawable.TextDrawable;
 
 public class ImgUtil {
-
-    private static final Set<String> failed = new HashSet<>();
 
     public static void logo(ImageView view) {
         try {
@@ -62,19 +60,36 @@ public class ImgUtil {
         }
     }
 
+    // 加载封面并允许失败后重新请求。
     public static void load(String text, String url, ImageView view) {
+        // 复用有限重试并清理旧图片请求。
         load(text, url, view, true);
     }
 
+    // 复用有限重试并清理旧图片请求。
     public static void load(String text, String url, ImageView view, boolean vod) {
         view.setScaleType(vod ? CENTER_CROP : FIT_CENTER);
         if (!vod) view.setVisibility(TextUtils.isEmpty(url) ? View.GONE : View.VISIBLE);
-        if (TextUtils.isEmpty(url) || failed.contains(url)) view.setImageDrawable(getTextDrawable(text, vod));
-        else try {
-            RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, vod));
-            if (vod) builder.centerCrop().into(view);
-            else builder.fitCenter().into(view);
+        // 没有可用图片时提供标题占位图。
+        Drawable fallback = getTextDrawable(text, vod);
+        RequestManager manager = null;
+        try {
+            manager = Glide.with(view);
+            if (TextUtils.isEmpty(url)) {
+                manager.clear(view);
+                view.setImageDrawable(fallback);
+                return;
+            }
+            RequestBuilder<Drawable> builder = manager.load(getUrl(url)).placeholder(fallback).error(fallback);
+            if (vod) builder.centerCrop();
+            else builder.fitCenter();
+            // 记录图片请求结果并由Glide显示最终占位图。
+            RequestBuilder<Drawable> retry = builder.clone().listener(getListener(text, url, true));
+            // 记录图片请求结果并由Glide显示最终占位图。
+            builder.listener(getListener(text, url, false)).error(retry).into(view);
         } catch (Throwable e) {
+            if (manager != null) manager.clear(view);
+            view.setImageDrawable(fallback);
             e.printStackTrace();
         }
     }
@@ -97,6 +112,7 @@ public class ImgUtil {
         for (Map.Entry<String, String> entry : map.entrySet()) builder.addHeader(UrlUtil.fixHeader(entry.getKey()), entry.getValue());
     }
 
+    // 没有可用图片时提供标题占位图。
     private static Drawable getTextDrawable(String text, boolean vod) {
         TextDrawable.Builder builder = new TextDrawable.Builder();
         text = TextUtils.isEmpty(text) ? "！" : text.substring(0, 1);
@@ -104,15 +120,18 @@ public class ImgUtil {
         return builder.buildRoundRect(text, ColorGenerator.get400(text), ResUtil.dp2px(4));
     }
 
-    private static RequestListener<Drawable> getListener(String text, String url, ImageView view, boolean vod) {
+    // 记录图片请求结果并由Glide显示最终占位图。
+    private static RequestListener<Drawable> getListener(String text, String url, boolean retry) {
         return new RequestListener<>() {
+            // 失败仅写诊断日志，继续有限重试或占位处理。
             @Override
             public boolean onLoadFailed(@Nullable GlideException e, Object model, @NonNull Target<Drawable> target, boolean isFirstResource) {
-                view.setImageDrawable(getTextDrawable(text, vod));
-                failed.add(url);
-                return true;
+                String reason = e == null ? "unknown" : e.getRootCauses().toString();
+                SpiderDebug.log("image", "key=%s,name=%s,host=%s,retry=%s,reason=%s", Integer.toHexString(url.hashCode()), text, UrlUtil.host(url), retry, reason);
+                return false;
             }
 
+            // 成功图片交由Glide绑定到当前视图。
             @Override
             public boolean onResourceReady(Drawable resource, Object model, Target<Drawable> target, DataSource dataSource, boolean isFirstResource) {
                 return false;
