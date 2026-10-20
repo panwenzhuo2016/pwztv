@@ -21,7 +21,6 @@ public final class RecentLogBuffer {
     public static final int MAX_CHARS = 96 * 1024;
     private static final int MAX_ENTRIES = 2048;
     private static final String TRUNCATED = " [truncated]";
-    private static final Pattern CANCELED = Pattern.compile("(?m)^(?:Caused by: )?java\\.(?:lang\\.InterruptedException|util\\.concurrent\\.CancellationException)\\b|(?:^|\\n)(?:Caused by: )?(?:java\\.io\\.(?:InterruptedIOException|IOException): )?(?:Canceled|Home request canceled|interrupted)(?:\\s|$)");
     private static final Pattern URL = Pattern.compile("https?://[^\\s\"'<>]+", Pattern.CASE_INSENSITIVE);
     private static final Pattern SECRET = Pattern.compile("(?i)(authorization|(?:set-)?cookie|password|token|secret|api[_-]?key|access[_-]?token)([\"']?\\s*[:=]\\s*)[^\\r\\n,}]+");
     private final ArrayDeque<Entry> entries = new ArrayDeque<>();
@@ -67,8 +66,8 @@ public final class RecentLogBuffer {
 
     // 仅记录有效异常并保留脱敏后的完整堆栈。
     public synchronized void append(String tag, String message, boolean error, boolean visible) {
-        // 过滤业务、运行、取消和纯网络错误。
-        if (!useful(tag, message, error)) return;
+        // 识别屏幕错误并过滤后台日志与普通提示。
+        if (!visible || !useful(tag, message, error)) return;
         String source = tag == null ? "app" : tag;
         // 统一整理摘要与异常并遮蔽敏感信息。
         String text = prepare(source, message);
@@ -82,13 +81,11 @@ public final class RecentLogBuffer {
         trim();
     }
 
-    // 过滤业务、运行、取消和纯网络错误。
+    // 识别屏幕错误并过滤后台日志与普通提示。
     public static boolean useful(String tag, String message, boolean error) {
-        if (message == null || message.isBlank() || CANCELED.matcher(message).find()) return false;
-        // 去除播放日志前缀后识别真实异常内容。
-        if (!DiagnosticError.containsException(message)) return false;
-        // 仅过滤网络异常链，混有程序异常时仍保留。
-        return !DiagnosticError.isRoutineNetwork(message);
+        if (message == null || message.isBlank()) return false;
+        // 识别屏幕错误提示并排除普通成功通知。
+        return error || DiagnosticError.isPopupError(message);
     }
 
     // 合并当前保留窗口内内容相同的异常。
@@ -192,9 +189,9 @@ public final class RecentLogBuffer {
             int separator = stored.indexOf(": ");
             String tag = separator < 0 ? "app" : stored.substring(0, separator);
             String message = separator < 0 ? stored : stored.substring(separator + 2);
-            // 过滤业务、运行、取消和纯网络错误。
-            if (!useful(tag, message, true)) continue;
             boolean visible = item.has("visible") && item.get("visible").getAsBoolean();
+            // 识别屏幕错误并过滤后台日志与普通提示。
+            if (!visible || !useful(tag, message, true)) continue;
             int count = item.has("count") ? item.get("count").getAsInt() : 1;
             long last = item.has("last") ? item.get("last").getAsLong() : time;
             if (count < 1 || last < time || last > now) throw new IllegalArgumentException("Invalid diagnostic count or time");

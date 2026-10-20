@@ -70,6 +70,11 @@ public final class DiagnosticLog implements LogAdapter {
         // 恢复本地日志并定期保存有限快照。
         instance = new DiagnosticLog(context.getApplicationContext());
         Logger.addLogAdapter(instance);
+        // 观察本进程系统提示，失败时保留应用自有入口。
+        ToastDiagnostics.install(text -> {
+            // 实际显示异常时保留原始信息和显示调用链。
+            visible("plugin-toast", text, false);
+        });
     }
 
     // 过滤业务调试日志仅接收警告和异常。
@@ -93,25 +98,21 @@ public final class DiagnosticLog implements LogAdapter {
         record(tag, message, false);
     }
 
-    // 按异常标记写入脱敏诊断缓冲。
+    // 后台异常只短暂待匹配，不写复制日志。
     public static void record(String tag, String message, boolean error) {
-        // 过滤业务、运行、取消和纯网络错误。
-        if (!RecentLogBuffer.useful(tag, message, error)) return;
         DiagnosticLog value = instance;
-        if (value == null) return;
-        // 区分业务摘要与异常并保留诊断信息。
-        value.buffer.append(tag, message, true);
+        // 去除播放日志前缀后识别真实异常内容。
+        if (value == null || !DiagnosticError.containsException(message)) return;
+        // 按异常原文及插件方法匹配即将显示的错误。
+        value.screenErrors.rememberLogged(message);
     }
 
-    // 保留程序异常堆栈并短暂关联显示信息。
+    // 原始异常仅在对应错误实际显示后写入日志。
     public static void prepareVisible(String message, Throwable error) {
         // 序列化原始堆栈且不忽略域名解析异常。
         String details = ScreenErrorContext.stack(error);
-        // 按异常标记写入脱敏诊断缓冲。
-        record("error", message + "\n" + details, true);
         DiagnosticLog value = instance;
-        // 过滤业务、运行、取消和纯网络错误。
-        if (value != null && RecentLogBuffer.useful("error", details, true)) {
+        if (value != null) {
             // 短暂关联提示和原始堆栈，限制总容量。
             value.screenErrors.remember(message, details);
         }
@@ -123,9 +124,9 @@ public final class DiagnosticLog implements LogAdapter {
         if (value == null || message == null || message.isBlank()) return;
         // 实际显示时取出堆栈，避免后台误记完整日志。
         String details = value.screenErrors.take(message);
-        String original = message + "\n" + (details == null ? "" : details);
-        // 过滤业务、运行、取消和纯网络错误。
-        if (!RecentLogBuffer.useful(tag, original, error)) return;
+        // 识别屏幕错误提示并排除普通成功通知。
+        if (!error && details == null && !DiagnosticError.isPopupError(message)) return;
+        String original = message + "\n" + (details == null ? "Original exception unavailable; display call site follows.\n" : details);
         // 序列化原始堆栈且不忽略域名解析异常。
         String caller = ScreenErrorContext.stack(new Throwable("Screen display call site"));
         // 仅记录有效异常并保留脱敏后的完整堆栈。
@@ -161,7 +162,9 @@ public final class DiagnosticLog implements LogAdapter {
             String logs = value.buffer.export();
             String report = "TV diagnostics\nversion=" + BuildConfig.VERSION_NAME + ",mode=" + BuildConfig.FLAVOR_mode
                     + ",abi=" + BuildConfig.FLAVOR_abi + "\nAndroid=" + Build.VERSION.RELEASE + ",device=" + Build.MANUFACTURER + " " + Build.MODEL
-                    + "\nLast 1h; exceptions only; business/runtime/network logs excluded; full stacks within 96K; duplicates merged; credentials redacted.\n"
+                    + "\nLast 1h; screen errors only; background logs excluded; full stacks within 96K; duplicates merged; credentials redacted.\n"
+                    // 明示插件提示观察入口是否安装成功。
+                    + "toastObserver=" + ToastDiagnostics.status() + "\n"
                     + (logs.isEmpty() ? "No diagnostic errors in this window.\n" : logs);
             App.post(() -> Util.copy(report));
         });

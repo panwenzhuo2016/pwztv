@@ -6,10 +6,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 final class ScreenErrorContext {
     private static final int MAX_PENDING = 8;
     private static final long RETENTION_MS = TimeUnit.MINUTES.toMillis(1);
+    private static final Pattern PLUGIN_FRAME = Pattern.compile("(?m)^[\\t ]*at com\\.github\\.catvod\\.spider\\.([\\w$]+)\\.(playerContent|searchContent|homeContent|homeVideoContent|detailContent|categoryContent)\\(");
     private final Map<String, Entry> pending = new LinkedHashMap<>();
     private final LongSupplier clock;
 
@@ -22,6 +25,7 @@ final class ScreenErrorContext {
 
     // 短暂关联提示和原始堆栈，限制总容量。
     synchronized void remember(String message, String details) {
+        message = message.trim().replace(": ", ":");
         pending.remove(message);
         if (message.length() + details.length() <= RecentLogBuffer.MAX_CHARS) {
             pending.put(message, new Entry(details, clock.getAsLong()));
@@ -34,8 +38,28 @@ final class ScreenErrorContext {
     synchronized String take(String message) {
         // 清理过期上下文并淘汰超限的最早记录。
         trim();
-        Entry entry = pending.remove(message);
+        Entry entry = pending.remove(message.trim().replace(": ", ":"));
+        if (entry != null) pending.values().removeIf(value -> value.details().equals(entry.details()));
         return entry == null ? null : entry.details();
+    }
+
+    // 按异常原文及插件方法匹配即将显示的错误。
+    synchronized void rememberLogged(String details) {
+        String first = details.lines().findFirst().orElse("").trim();
+        int separator = first.indexOf(":");
+        String reason = separator < 0 ? "" : first.substring(separator + 1).trim();
+        // 短暂关联提示和原始堆栈，限制总容量。
+        remember(first, details);
+        if (!reason.isBlank()) {
+            // 短暂关联提示和原始堆栈，限制总容量。
+            remember(reason, details);
+        }
+        Matcher frame = PLUGIN_FRAME.matcher(details);
+        if (frame.find() && !frame.group(1).equals("BaseSpiderGuard")) {
+            String method = frame.group(2).equals("playerContent") ? "playContent" : frame.group(2);
+            // 短暂关联提示和原始堆栈，限制总容量。
+            remember(frame.group(1) + "-" + method + ":" + reason, details);
+        }
     }
 
     // 清理过期上下文并淘汰超限的最早记录。

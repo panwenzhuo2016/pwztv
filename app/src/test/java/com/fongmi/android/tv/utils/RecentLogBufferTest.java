@@ -26,12 +26,12 @@ public class RecentLogBufferTest {
         RecentLogBuffer buffer = new RecentLogBuffer(now::get);
         String error = "java.lang.IllegalStateException: repeated\n\tat app.parse(Parser.java:42)";
         // 区分业务摘要与异常并保留诊断信息。
-        buffer.append("parse", error, true);
+        buffer.append("parse", error, true, true);
         now.addAndGet(50 * 60_000L);
         // 区分业务摘要与异常并保留诊断信息。
-        buffer.append("parse", error, true);
+        buffer.append("parse", error, true, true);
         // 区分业务摘要与异常并保留诊断信息。
-        buffer.append("parse", "java.lang.NullPointerException: distinct error", true);
+        buffer.append("parse", "java.lang.NullPointerException: distinct error", true, true);
         now.addAndGet(20 * 60_000L);
         // 将有限日志编码为可恢复的本地快照。
         String snapshot = buffer.encode();
@@ -67,9 +67,9 @@ public class RecentLogBufferTest {
         // 注入时钟便于验证一小时保留边界。
         RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
         // 记录脱敏日志并限制单条与总容量。
-        buffer.append("search", "java.lang.IllegalStateException: https://user:" + "private-password".repeat(20) + "@example.org/video?token=secret");
+        buffer.append("search", "java.lang.IllegalStateException: https://user:" + "private-password".repeat(20) + "@example.org/video?token=secret", true, true);
         // 记录脱敏日志并限制单条与总容量。
-        buffer.append("search", "java.lang.IllegalStateException: " + "😀".repeat(RecentLogBuffer.MAX_CHARS));
+        buffer.append("search", "java.lang.IllegalStateException: " + "😀".repeat(RecentLogBuffer.MAX_CHARS), true, true);
         // 将有限日志编码为可恢复的本地快照。
         String saved = buffer.encode();
         assertFalse(saved.contains("private"));
@@ -111,6 +111,7 @@ public class RecentLogBufferTest {
             JsonObject item = new JsonObject();
             item.addProperty("time", 10_000_000);
             item.addProperty("text", text);
+            item.addProperty("visible", text.equals(error));
             old.add(item);
         }
         // 注入时钟便于验证一小时保留边界。
@@ -123,7 +124,7 @@ public class RecentLogBufferTest {
         String stored = saved.get(0).getAsJsonObject().get("text").getAsString();
         assertTrue(stored.startsWith("SpiderDebug: java.lang.Exception: failed"));
         assertEquals(error, stored);
-        assertFalse(saved.get(0).getAsJsonObject().get("visible").getAsBoolean());
+        assertTrue(saved.get(0).getAsJsonObject().get("visible").getAsBoolean());
         assertTrue(saved.get(0).getAsJsonObject().get("error").getAsBoolean());
     }
 
@@ -133,13 +134,13 @@ public class RecentLogBufferTest {
         // 注入时钟便于验证一小时保留边界。
         RecentLogBuffer buffer = new RecentLogBuffer(now::get);
         // 记录脱敏日志并限制单条与总容量。
-        buffer.append("parse", "java.lang.IllegalStateException: key=dytt first failure");
+        buffer.append("parse", "java.lang.IllegalStateException: key=dytt first failure", true, true);
         now.addAndGet(RecentLogBuffer.RETENTION_MS);
         // 导出按时间排列的最近一小时诊断文本。
         assertTrue(buffer.export().contains("first failure"));
         now.incrementAndGet();
         // 记录脱敏日志并限制单条与总容量。
-        buffer.append("player", "java.lang.IllegalStateException: key=dytt second failure");
+        buffer.append("player", "java.lang.IllegalStateException: key=dytt second failure", true, true);
         // 导出按时间排列的最近一小时诊断文本。
         String report = buffer.export();
         assertFalse(report.contains("first failure"));
@@ -154,7 +155,7 @@ public class RecentLogBufferTest {
         RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
         for (int i = 0; i < 3000; i++) {
             // 记录脱敏日志并限制单条与总容量。
-            buffer.append("search", "java.lang.IllegalStateException: event=" + i + " " + "x".repeat(10_000));
+            buffer.append("search", "java.lang.IllegalStateException: event=" + i + " " + "x".repeat(10_000), true, true);
         }
         // 导出按时间排列的最近一小时诊断文本。
         String report = buffer.export();
@@ -170,7 +171,7 @@ public class RecentLogBufferTest {
         RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
         // 记录脱敏日志并限制单条与总容量。
         buffer.append("player", "java.lang.IllegalStateException: key=dytt url=https://user:pass@example.org/v.m3u8?token=private#secret\n"
-                + "headers={Authorization=Bearer access, Cookie=session-data}\npassword=hidden\n{\"token\":\"json-secret\"}", true);
+                + "headers={Authorization=Bearer access, Cookie=session-data}\npassword=hidden\n{\"token\":\"json-secret\"}", true, true);
         // 导出按时间排列的最近一小时诊断文本。
         String report = buffer.export();
         assertTrue(report.contains("key=dytt"));
@@ -189,7 +190,7 @@ public class RecentLogBufferTest {
         // 注入时钟便于验证一小时保留边界。
         RecentLogBuffer original = new RecentLogBuffer(now::get);
         // 记录脱敏日志并限制单条与总容量。
-        original.append("parse", "org.json.JSONException: key=dytt\n  at parser.resolve(Parser.java:42)");
+        original.append("parse", "org.json.JSONException: key=dytt\n  at parser.resolve(Parser.java:42)", true, true);
         Path file = Files.createTempFile("diagnostic-log-", ".json");
         try {
             // 将有限日志编码为可恢复的本地快照。
@@ -215,7 +216,7 @@ public class RecentLogBufferTest {
         // 注入时钟便于验证一小时保留边界。
         RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
         // 记录脱敏日志并限制单条与总容量。
-        buffer.append("notice", "java.lang.IllegalStateException: key=dytt visible error");
+        buffer.append("notice", "java.lang.IllegalStateException: key=dytt visible error", true, true);
         assertThrows(RuntimeException.class, () -> {
             // 恢复仍在一小时范围内的日志快照。
             buffer.restore("not-json");
@@ -236,7 +237,7 @@ public class RecentLogBufferTest {
                 jobs.add(pool.submit(() -> {
                     for (int j = 0; j < 100; j++) {
                         // 记录脱敏日志并限制单条与总容量。
-                        buffer.append("search", "java.lang.IllegalStateException: worker=" + worker + ",event=" + j + ";");
+                        buffer.append("search", "java.lang.IllegalStateException: worker=" + worker + ",event=" + j + ";", true, true);
                     }
                 }));
             }

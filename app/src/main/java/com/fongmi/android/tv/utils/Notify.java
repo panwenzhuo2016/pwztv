@@ -40,7 +40,7 @@ public class Notify {
     // 保留原始异常供设置页复制诊断。
     public static String getError(int resId, Throwable e) {
         String message = ResUtil.getString(resId) + (TextUtils.isEmpty(e.getMessage()) ? "" : "\n" + e.getMessage());
-        // 保留程序异常堆栈并短暂关联显示信息。
+        // 原始异常仅在对应错误实际显示后写入日志。
         DiagnosticLog.prepareVisible(message, e);
         return message;
     }
@@ -81,9 +81,11 @@ public class Notify {
         mDialog.show();
     }
 
+    // 显示应用提示并避免系统观察入口重复记录。
     private void makeText(String text) {
         if (mToast != null) mToast.cancel();
         mToast = Toast.makeText(App.get(), text, Toast.LENGTH_LONG);
-        mToast.show();
+        // 显示应用提示并避免系统观察入口重复记录。
+        ToastDiagnostics.showOwn(mToast);
     }
 }

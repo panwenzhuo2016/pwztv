@@ -19,6 +19,13 @@ public final class DiagnosticError {
             "androidx.media3.datasource.HttpDataSource$HttpDataSourceException",
             "androidx.media3.datasource.DataSourceException");
     private static final Pattern IO_NETWORK = Pattern.compile("(?i)^(?:java\\.io\\.)?(?:InterruptedIO|IO)Exception: (?:Canceled|interrupted|timeout|connection reset|broken pipe|failed to connect|unable to resolve host)(?:\\b|$)");
+    private static final Pattern POPUP_ERROR = Pattern.compile("(?i)(?:失败|错误|异常|\\b(?:error|failed|failure|exception)\\b)|^[\\w$]+-(?:playContent|playerContent|searchContent|homeContent|homeVideoContent|detailContent|categoryContent):");
+
+    // 识别屏幕错误提示并排除普通成功通知。
+    public static boolean isPopupError(String message) {
+        // 去除播放日志前缀后识别真实异常内容。
+        return message != null && (containsException(message) || POPUP_ERROR.matcher(message).find());
+    }
 
     // 识别真实异常并忽略人为附加的显示调用链。
     public static boolean isException(String message) {
