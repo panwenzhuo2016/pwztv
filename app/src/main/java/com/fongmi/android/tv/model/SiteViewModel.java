@@ -76,7 +76,7 @@ public class SiteViewModel extends ViewModel {
         return this;
     }
 
-    // 首页单源最多等待五秒并自动选择可用来源。
+    // 首页单源最多等待八秒并自动选择可用来源。
     public void homeContent() {
         int id = taskId.incrementAndGet();
         if (future != null) future.cancel(true);

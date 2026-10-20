@@ -252,7 +252,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
         boolean hasItem = gone && mAdapter.size() > index;
         if (hasItem) mAdapter.removeItems(index, mAdapter.size() - index);
         if (gone) mAdapter.add("progress");
-        // 首页单源最多等待五秒并自动选择可用来源。
+        // 首页单源最多等待八秒并自动选择可用来源。
         mViewModel.homeContent();
     }
 

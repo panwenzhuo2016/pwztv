@@ -38,17 +38,17 @@ public class HomeLoaderTest {
         return task;
     }
 
-    // 反查五秒总时限并确认先取消旧源再启动下一源。
-    @Test public void enforcesFiveSecondsAndCancelsBeforeNextSource() throws Exception {
+    // 反查八秒总时限并确认先取消旧源再启动下一源。
+    @Test public void enforcesEightSecondsAndCancelsBeforeNextSource() throws Exception {
         // 创建可反查取消状态的测试请求。
         Request slow = new Request(() -> "late");
         // 创建可反查取消状态的测试请求。
         Request fast = new Request(() -> "videos");
         List<String> failures = new ArrayList<>();
         FutureTask<String> timeout = new FutureTask<>(slow) {
-            // 模拟达到首页截止时间而不让测试等待五秒。
+            // 模拟达到首页截止时间而不让测试等待八秒。
             @Override public String get(long duration, TimeUnit unit) throws TimeoutException {
-                assertEquals(5000, unit.toMillis(duration));
+                assertEquals(8000, unit.toMillis(duration));
                 throw new TimeoutException();
             }
         };
@@ -74,7 +74,7 @@ public class HomeLoaderTest {
         List<String> attempted = new ArrayList<>();
         List<String> failed = new ArrayList<>();
         // 配置单源首页总耗时上限和内容校验。
-        HomeLoader<String, String> loader = new HomeLoader<>(5000, this::completed, value -> !value.isEmpty());
+        HomeLoader<String, String> loader = new HomeLoader<>(Constant.TIMEOUT_HOME, this::completed, value -> !value.isEmpty());
         // 超时或空内容即换源并取消上一来源请求。
         var loaded = loader.load(List.of("empty", "broken", "good", "unused"), key -> {
             attempted.add(key);
@@ -103,7 +103,7 @@ public class HomeLoaderTest {
     @Test public void exhaustsCandidatesAndReturnsExplicitFailure() throws Exception {
         List<String> failed = new ArrayList<>();
         // 配置单源首页总耗时上限和内容校验。
-        HomeLoader<String, String> loader = new HomeLoader<>(5000, this::completed, value -> !value.isEmpty());
+        HomeLoader<String, String> loader = new HomeLoader<>(Constant.TIMEOUT_HOME, this::completed, value -> !value.isEmpty());
         // 超时或空内容即换源并取消上一来源请求。
         var loaded = loader.load(List.of("a", "b"), key -> {
             // 创建可反查取消状态的测试请求。
@@ -119,7 +119,7 @@ public class HomeLoaderTest {
         // 创建可反查取消状态的测试请求。
         Request late = new Request(() -> { current.set(false); return "late videos"; });
         // 配置单源首页总耗时上限和内容校验。
-        HomeLoader<String, String> loader = new HomeLoader<>(5000, this::completed, value -> true);
+        HomeLoader<String, String> loader = new HomeLoader<>(Constant.TIMEOUT_HOME, this::completed, value -> true);
         // 超时或空内容即换源并取消上一来源请求。
         assertThrows(CancellationException.class, () -> loader.load(List.of("old", "next"), key -> {
             assertEquals("old", key);
@@ -139,7 +139,7 @@ public class HomeLoaderTest {
             }
         };
         // 配置单源首页总耗时上限和内容校验。
-        HomeLoader<String, String> loader = new HomeLoader<>(5000, task -> interrupted, value -> true);
+        HomeLoader<String, String> loader = new HomeLoader<>(Constant.TIMEOUT_HOME, task -> interrupted, value -> true);
         // 超时或空内容即换源并取消上一来源请求。
         assertThrows(InterruptedException.class, () -> loader.load(List.of("old", "next"), key -> request,
                 () -> true, (key, reason) -> fail("Cancellation must not mark sources failed")));

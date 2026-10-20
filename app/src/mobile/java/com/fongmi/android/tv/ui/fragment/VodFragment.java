@@ -222,7 +222,7 @@ public class VodFragment extends BaseFragment implements ConfigCallback, SiteCal
         showProgress();
         setFabVisible(0);
         mAdapter.clear();
-        // 首页单源最多等待五秒并自动选择可用来源。
+        // 首页单源最多等待八秒并自动选择可用来源。
         mViewModel.homeContent();
         mBinding.pager.setAdapter(new PageAdapter(getChildFragmentManager()));
     }
