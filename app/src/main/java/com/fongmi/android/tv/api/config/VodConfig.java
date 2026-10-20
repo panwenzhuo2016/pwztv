@@ -11,6 +11,7 @@ import com.fongmi.android.tv.bean.Parse;
 import com.fongmi.android.tv.bean.Rule;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.impl.Callback;
+import com.fongmi.android.tv.player.PlaybackSupport;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.utils.Notify;
 import com.github.catvod.bean.Doh;
@@ -152,7 +153,7 @@ public class VodConfig {
             initList(object);
             initLive(config, object);
             initWall(config, object);
-            // 初始化点播站点且不等待可选插件下载。
+            // 初始化可用片源并过滤已移除的P2P入口。
             initSite(config, object);
             initParse(config, object);
             config.logo(Json.safeString(object, "logo"));
@@ -192,12 +193,15 @@ public class VodConfig {
         if (sync) WallConfig.get().config(temp.update());
     }
 
-    // 初始化点播站点且不等待可选插件下载。
+    // 初始化可用片源并过滤已移除的P2P入口。
     private void initSite(Config config, JsonObject object) {
         String spider = Json.safeString(object, "spider");
         // 后台预加载可选插件且失败不阻断配置。
         BaseLoader.get().prepareJar(spider, true);
-        setSites(Json.safeListElement(object, "sites").stream().map(e -> Site.objectFrom(e, spider)).distinct().collect(Collectors.toCollection(ArrayList::new)));
+        // 过滤依赖已移除引擎的已知片源。
+        setSites(Json.safeListElement(object, "sites").stream().map(e -> Site.objectFrom(e, spider))
+                .filter(site -> !PlaybackSupport.removedSite(site.getKey(), site.getApi()))
+                .distinct().collect(Collectors.toCollection(ArrayList::new)));
         Map<String, Site> items = Site.findAll().stream().collect(Collectors.toMap(Site::getKey, Function.identity()));
         getSites().forEach(site -> site.sync(items.get(site.getKey())));
         setHome(config, getSites().isEmpty() ? new Site() : getSites().stream().filter(item -> item.getKey().equals(config.getHome())).findFirst().orElse(getSites().get(0)), false);

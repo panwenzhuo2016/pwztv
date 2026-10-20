@@ -124,6 +124,7 @@
     <string name="dialog_config_url">请输入地址…</string>
 
     <!-- Error -->
+    <string name="error_p2p_removed">此版本不支持磁力、种子及荐片地址，请切换其他片源</string>
     <string name="error_python_disabled">此版本不支持该类型片源，请切换其他片源</string>
     <string name="error_config_get">配置取得失败</string>
     <string name="error_config_parse">配置解析失败</string>

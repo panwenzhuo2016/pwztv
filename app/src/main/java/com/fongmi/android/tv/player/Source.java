@@ -3,18 +3,19 @@ package com.fongmi.android.tv.player;
 import android.net.Uri;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.Episode;
 import com.fongmi.android.tv.bean.Flag;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.player.extractor.Force;
-import com.fongmi.android.tv.player.extractor.JianPian;
 import com.fongmi.android.tv.player.extractor.Push;
 import com.fongmi.android.tv.player.extractor.Strm;
 import com.fongmi.android.tv.player.extractor.TVBus;
-import com.fongmi.android.tv.player.extractor.Thunder;
 import com.fongmi.android.tv.player.extractor.Video;
 import com.fongmi.android.tv.player.extractor.Youtube;
+import com.fongmi.android.tv.exception.ExtractException;
+import com.fongmi.android.tv.utils.ResUtil;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -30,6 +31,7 @@ public class Source {
     private final List<Extractor> extractors;
 
     private static class Loader {
+        // 注册保留的播放地址解析器。
         static volatile Source INSTANCE = new Source();
     }
 
@@ -37,13 +39,12 @@ public class Source {
         return Loader.INSTANCE;
     }
 
+    // 注册保留的播放地址解析器。
     public Source() {
         extractors = new ArrayList<>();
         extractors.add(new Force());
-        extractors.add(new JianPian());
         extractors.add(new Push());
         extractors.add(new Strm());
-        extractors.add(new Thunder());
         extractors.add(new TVBus());
         extractors.add(new Video());
         extractors.add(new Youtube());
@@ -53,12 +54,10 @@ public class Source {
         return extractors.stream().filter(extractor -> extractor.match(uri)).findFirst().orElse(null);
     }
 
+    // 仅为需要展开的在线视频创建解析任务。
     private void addCallable(Iterator<Episode> iterator, List<Callable<List<Episode>>> items) {
         String url = iterator.next().getUrl();
-        if (Thunder.Parser.match(url)) {
-            items.add(Thunder.Parser.get(url));
-            iterator.remove();
-        } else if (Youtube.Parser.match(url)) {
+        if (Youtube.Parser.match(url)) {
             items.add(Youtube.Parser.get(url));
             iterator.remove();
         }
@@ -69,15 +68,19 @@ public class Source {
             for (Flag flag : vod.getFlags()) {
                 List<Callable<List<Episode>>> items = new ArrayList<>();
                 Iterator<Episode> iterator = flag.getEpisodes().iterator();
+                // 仅为需要展开的在线视频创建解析任务。
                 while (iterator.hasNext()) addCallable(iterator, items);
                 for (Future<List<Episode>> future : executor.invokeAll(items, 30, TimeUnit.SECONDS)) flag.getEpisodes().addAll(future.get());
             }
         }
     }
 
+    // 解析播放地址并明确拒绝已移除的协议。
     public String fetch(Result result) throws Exception {
         Uri uri = result.getUrl().uri();
         String url = result.getUrl().v();
+        // 识别已移除的下载与P2P播放地址。
+        if (PlaybackSupport.removedUrl(url)) throw new ExtractException(ResUtil.getString(R.string.error_p2p_removed));
         Extractor extractor = getExtractor(uri);
         if (extractor != null) result.setParse(0);
         if (extractor instanceof Video) result.setParse(1);

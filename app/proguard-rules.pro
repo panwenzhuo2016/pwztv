@@ -46,9 +46,6 @@
 -keep class org.xmlpull.** { *; }
 -keepclassmembers class org.xmlpull.** { *; }
 
-# Jianpian
--keep class com.p2p.** { *; }
-
 # Nano
 -keep class fi.iki.elonen.** { *; }
 
@@ -76,9 +73,6 @@
 
 # TVBus
 -keep class com.tvbus.engine.** { *; }
-
-# XunLei
--keep class com.xunlei.downloadlib.** { *; }
 
 # Zxing
 -keep class com.google.zxing.** { *; }

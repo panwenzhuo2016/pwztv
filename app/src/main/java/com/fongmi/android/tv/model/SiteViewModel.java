@@ -175,6 +175,7 @@ public class SiteViewModel extends ViewModel {
                 SpiderDebug.log("player", playerContent);
                 Result result = Result.fromJson(playerContent);
                 if (result.getFlag().isEmpty()) result.setFlag(flag);
+                // 解析播放地址并明确拒绝已移除的协议。
                 result.setUrl(Source.get().fetch(result));
                 result.setHeader(site.getHeader());
                 result.setKey(key);
@@ -187,6 +188,7 @@ public class SiteViewModel extends ViewModel {
                 SpiderDebug.log("player", playerContent);
                 Result result = Result.fromJson(playerContent);
                 if (result.getFlag().isEmpty()) result.setFlag(flag);
+                // 解析播放地址并明确拒绝已移除的协议。
                 result.setUrl(Source.get().fetch(result));
                 result.setHeader(site.getHeader());
                 return result;
@@ -195,6 +197,7 @@ public class SiteViewModel extends ViewModel {
                 result.setUrl(id);
                 result.setParse(0);
                 result.setFlag(flag);
+                // 解析播放地址并明确拒绝已移除的协议。
                 result.setUrl(Source.get().fetch(result));
                 SpiderDebug.log("player", result.toString());
                 return result;
@@ -205,6 +208,7 @@ public class SiteViewModel extends ViewModel {
                 result.setHeader(site.getHeader());
                 result.setPlayUrl(site.getPlayUrl());
                 result.setParse(Sniffer.isVideoFormat(id) && result.getPlayUrl().isEmpty() ? 0 : 1);
+                // 解析播放地址并明确拒绝已移除的协议。
                 result.setUrl(Source.get().fetch(result));
                 SpiderDebug.log("player", result.toString());
                 return result;

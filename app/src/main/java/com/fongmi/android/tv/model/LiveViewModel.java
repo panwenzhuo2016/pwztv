@@ -118,6 +118,7 @@ public class LiveViewModel extends ViewModel {
             Source.get().stop();
             // 使用当前线路独立参数生成播放请求。
             Result result = item.result();
+            // 解析播放地址并明确拒绝已移除的协议。
             result.setUrl(Source.get().fetch(result));
             return result;
         });
@@ -129,6 +130,7 @@ public class LiveViewModel extends ViewModel {
             Source.get().stop();
             // 使用当前线路独立参数生成播放请求。
             Result result = item.result();
+            // 解析播放地址并明确拒绝已移除的协议。
             result.setUrl(item.getCatchup().format(Source.get().fetch(result), data));
             return result;
         });

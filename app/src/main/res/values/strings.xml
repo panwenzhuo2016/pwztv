@@ -125,6 +125,7 @@
     <string name="dialog_config_url">Please enter the url…</string>
 
     <!-- Error -->
+    <string name="error_p2p_removed">Magnet, torrent and JianPian playback is unavailable. Please choose another source.</string>
     <string name="error_python_disabled">This version does not support this source type. Please choose another source.</string>
     <string name="error_config_get">Configuration get failed</string>
     <string name="error_config_parse">Configuration parse failed</string>
