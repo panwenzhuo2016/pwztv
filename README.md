@@ -2,7 +2,7 @@
 
 ### Windows 一键打包
 
-双击下表对应的 BAT，或在终端运行它，每次只构建一种安装包。需要 JDK 17 或更新版本、Python 3.10、Android SDK Platform 36.1 和 Build-Tools 35.0.0。电脑上的 Python 用于执行打包脚本，与 APK 是否携带 Python 运行时无关。通过 `ANDROID_HOME` 环境变量或 `local.properties` 中的 `sdk.dir` 指定 SDK；也支持项目根目录的 `.android-sdk`。首次构建需联网下载 Gradle 和依赖，启用 Python 片源支持时另需下载 Python 包。
+双击根目录 `build_all.bat` 一次构建全部四种安装包，或使用下表中的独立入口只构建一种。需要 JDK 17 或更新版本、Python 3.10、Android SDK Platform 36.1 和 Build-Tools 35.0.0。电脑上的 Python 用于执行打包脚本，与 APK 是否携带 Python 运行时无关。通过 `ANDROID_HOME` 环境变量或 `local.properties` 中的 `sdk.dir` 指定 SDK；也支持项目根目录的 `.android-sdk`。首次构建需联网下载 Gradle 和依赖，启用 Python 片源支持时另需下载 Python 包。
 
 手机使用 `build_32.bat` 或 `build_64.bat`；电视、盒子和投影使用 `build_32_tv.bat` 或 `build_64_tv.bat`。无人值守可追加 `--no-pause`，查看帮助可追加 `--help`。
 
@@ -23,7 +23,7 @@
 
 首次运行自动创建本地签名，之后复用。**请备份整个 `.signing` 目录，其中包含密钥和密码，勿上传或分享。** 更换签名后无法覆盖安装旧版本；原有安装包若使用其他签名，也需先卸载再安装，卸载会清除应用数据。密钥或密码缺失时脚本会停止，避免无意更换签名。
 
-构建失败会返回非零退出码；`Release` 中可能保留上次成功的产物，以本次终端的 `SUCCESS` 和列出的文件为准。每次仅更新所选安装包，其他已有安装包保留。
+构建失败会返回非零退出码；`Release` 中可能保留上次成功的产物，以本次终端的 `SUCCESS` 和列出的文件为准。`build_all.bat` 更新全部四种安装包；独立入口仅更新所选安装包，其他已有安装包保留。
 
 ### 来源聚合与自动换源
 
