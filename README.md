@@ -2,28 +2,28 @@
 
 ### Windows 一键打包
 
-双击根目录 `build_all.bat`，或在终端运行它。需要 JDK 17 或更新版本、Python 3.10、Android SDK Platform 36.1 和 Build-Tools 35.0.0。电脑上的 Python 用于执行打包脚本，与 APK 是否携带 Python 运行时无关。通过 `ANDROID_HOME` 环境变量或 `local.properties` 中的 `sdk.dir` 指定 SDK；也支持项目根目录的 `.android-sdk`。首次构建需联网下载 Gradle 和依赖，启用 Python 片源支持时另需下载 Python 包。
+双击下表对应的 BAT，或在终端运行它，每次只构建一种安装包。需要 JDK 17 或更新版本、Python 3.10、Android SDK Platform 36.1 和 Build-Tools 35.0.0。电脑上的 Python 用于执行打包脚本，与 APK 是否携带 Python 运行时无关。通过 `ANDROID_HOME` 环境变量或 `local.properties` 中的 `sdk.dir` 指定 SDK；也支持项目根目录的 `.android-sdk`。首次构建需联网下载 Gradle 和依赖，启用 Python 片源支持时另需下载 Python 包。
 
-默认只构建手机、电视两种 **64 位**安装包。需要同时构建 32 位时运行 `build_all.bat --include-32bit`；无人值守可追加 `--no-pause`，参数顺序不限。
+手机使用 `build_32.bat` 或 `build_64.bat`；电视、盒子和投影使用 `build_32_tv.bat` 或 `build_64_tv.bat`。无人值守可追加 `--no-pause`，查看帮助可追加 `--help`。
 
 界面资源仅打包英文与中文（含简体、繁体），片源和国际频道保留。一键打包脚本会在签名前压缩流式读取的 `assets/libmitv.so`，重新进行 16KB 原生库对齐并逐项核对内容；其他原生库保留原压缩方式。直接运行 Gradle 仅应用语言裁剪，不执行这项额外压缩。
 
-默认 APK **不携带 Python 运行时**，保留当前全部片源配置和 Java、JavaScript、直接采集接口及直播能力。现有随包配置没有直接声明 Python 片源；远程 Java 插件核心受保护，移除 Python 后仍需抽样验证插件播放。以后需要 Python 脚本源，可运行 `build_all.bat --with-python`，也可组合 `--include-32bit`。直接使用 Gradle 时对应 `-PwithPython=true`，默认值为 `false`。完整版本仅在首次使用 Python 源时启动运行时。默认版本遇到 Python 源会提示当前版本不支持该类型片源，其他来源继续正常加载。脚本在签名前检查 APK 内容，防止 Python 组件遗漏或误带入默认包；两种构建使用相同输出文件名，后一次成功构建会覆盖同架构旧包。
+默认 APK **不携带 Python 运行时**，保留当前全部片源配置和 Java、JavaScript、直接采集接口及直播能力。现有随包配置没有直接声明 Python 片源；远程 Java 插件核心受保护，移除 Python 后仍需抽样验证插件播放。以后需要 Python 脚本源，可在对应 BAT 后追加 `--with-python`，例如 `build_64_tv.bat --with-python`。直接使用 Gradle 时对应 `-PwithPython=true`，默认值为 `false`。完整版本仅在首次使用 Python 源时启动运行时。默认版本遇到 Python 源会提示当前版本不支持该类型片源，其他来源继续正常加载。脚本在签名前检查 APK 内容，防止 Python 组件遗漏或误带入默认包；两种构建使用相同输出文件名，后一次成功构建会覆盖同架构旧包。
 
 脚本构建启用代码与资源裁剪的 Release 版本，逐个签名并校验成功后，集中输出到根目录 `Release`：
 
-| 安装包 | 设备 |
-| --- | --- |
-| `p.apk` | 64 位 ARM 安卓手机、平板 |
-| `p32.apk` | 32 位 ARM 安卓手机、平板，需 `--include-32bit` |
-| `p-tv.apk` | 64 位 ARM 安卓电视、盒子、投影 |
-| `p-tv32.apk` | 32 位 ARM 安卓电视、盒子、投影，需 `--include-32bit` |
+| 打包入口 | 安装包 | 设备 |
+| --- | --- | --- |
+| `build_32.bat` | `p32.apk` | 32 位 ARM 安卓手机、平板 |
+| `build_64.bat` | `p.apk` | 64 位 ARM 安卓手机、平板 |
+| `build_32_tv.bat` | `p-tv32.apk` | 32 位 ARM 安卓电视、盒子、投影 |
+| `build_64_tv.bat` | `p-tv.apk` | 64 位 ARM 安卓电视、盒子、投影 |
 
 按设备的安卓系统架构选择安装包。极米需支持安装第三方安卓应用；iPhone、iPad 不支持这些 APK。
 
 首次运行自动创建本地签名，之后复用。**请备份整个 `.signing` 目录，其中包含密钥和密码，勿上传或分享。** 更换签名后无法覆盖安装旧版本；原有安装包若使用其他签名，也需先卸载再安装，卸载会清除应用数据。密钥或密码缺失时脚本会停止，避免无意更换签名。
 
-构建失败会返回非零退出码；`Release` 中可能保留上次成功的产物，以本次终端的 `SUCCESS` 和列出的文件为准。默认构建不会更新已存在的 32 位包。
+构建失败会返回非零退出码；`Release` 中可能保留上次成功的产物，以本次终端的 `SUCCESS` 和列出的文件为准。每次仅更新所选安装包，其他已有安装包保留。
 
 ### 来源聚合与自动换源
 

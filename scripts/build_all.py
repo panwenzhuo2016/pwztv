@@ -1,4 +1,4 @@
-"""Build and sign Android releases; include 32-bit variants only when requested."""
+"""Build and sign Android releases for the selected device and architecture."""
 
 import argparse
 import hashlib
@@ -32,20 +32,25 @@ PYTHON_NATIVE_PREFIXES = (
 )
 
 
-# 解析参数并选择架构与Python支持。
+# 解析设备架构及Python运行时选项。
 def build_options(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--include-32bit", action="store_true", help="also build ARM 32-bit APKs")
+    architecture = parser.add_mutually_exclusive_group()
+    architecture.add_argument("--include-32bit", action="store_true", help="also build ARM 32-bit APKs")
+    architecture.add_argument("--abi", choices=("32", "64"), help="build only the selected ARM architecture")
+    parser.add_argument("--mode", choices=MODES, help="build only the selected device type")
     parser.add_argument("--with-python", action="store_true", help="include support for Python script sources")
     parser.add_argument("--no-pause", action="store_true", help=argparse.SUPPRESS)
     options = parser.parse_args(argv)
-    options.abis = ("arm64_v8a", "armeabi_v7a") if options.include_32bit else ("arm64_v8a",)
+    options.abis = (("armeabi_v7a",) if options.abi == "32" else ("arm64_v8a", "armeabi_v7a")
+                    if options.include_32bit else ("arm64_v8a",))
+    options.modes = (options.mode,) if options.mode else MODES
     return options
 
 
-# 显式选择Python依赖避免复用其他构建设置。
+# 按所选设备架构构建并显式设置Python依赖。
 def gradle_command(options):
-    tasks = [f":app:assemble{mode.capitalize()}{abi.capitalize()}Release" for mode in MODES for abi in options.abis]
+    tasks = [f":app:assemble{mode.capitalize()}{abi.capitalize()}Release" for mode in options.modes for abi in options.abis]
     return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", "gradlew.bat", *tasks,
             f"-PwithPython={str(options.with_python).lower()}",
             "--no-configuration-cache" if options.with_python else "--configuration-cache",
@@ -154,12 +159,12 @@ def release_apks(expected):
 
 # 构建并签名校验所选安卓发布包。
 def main():
-    # 解析参数并选择架构与Python支持。
+    # 解析设备架构及Python运行时选项。
     options = build_options()
     abis = options.abis
-    expected = {APK_NAMES[(mode, abi)] for mode in MODES for abi in abis}
+    expected = {APK_NAMES[(mode, abi)] for mode in options.modes for abi in abis}
     if os.name != "nt":
-        raise RuntimeError("Run build_all.bat on Windows.")
+        raise RuntimeError("Run build_32.bat, build_64.bat, build_32_tv.bat or build_64_tv.bat on Windows.")
     env = dict(os.environ)
     java_home = env.get("JAVA_HOME", "").strip('"')
     java = Path(java_home) / "bin" / "java.exe" if java_home else Path(shutil.which("java") or "")
@@ -176,7 +181,7 @@ def main():
     # 创建或复用本地长期签名密钥。
     keystore, alias, env = signing_environment(keytool, env)
     print(f"Python source support: {'enabled' if options.with_python else 'disabled'}", flush=True)
-    # 显式选择Python依赖避免复用其他构建设置。
+    # 按所选设备架构构建并显式设置Python依赖。
     command = gradle_command(options)
     # 执行外部工具并保留失败退出码。
     run(command, env)

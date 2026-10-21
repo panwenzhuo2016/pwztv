@@ -16,6 +16,73 @@ import build_all as build
 
 class BuildAllTest(unittest.TestCase):
 
+    # 反查四个入口仅构建发布所选包并保留其他产物。
+    def test_each_entry_builds_and_publishes_only_its_selected_apk(self):
+        entries = [('build_32.bat', '32', 'mobile', 'p32.apk', 'MobileArmeabi_v7a'),
+                   ('build_64.bat', '64', 'mobile', 'p.apk', 'MobileArm64_v8a'),
+                   ('build_32_tv.bat', '32', 'leanback', 'p-tv32.apk', 'LeanbackArmeabi_v7a'),
+                   ('build_64_tv.bat', '64', 'leanback', 'p-tv.apk', 'LeanbackArm64_v8a')]
+        for entry, abi, mode, name, variant in entries:
+            with self.subTest(entry=entry), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+                wrapper = (build.ROOT / entry).read_bytes()
+                self.assertFalse(wrapper.startswith(b'\xef\xbb\xbf'))
+                command = next(line for line in wrapper.decode('ascii').splitlines() if line.startswith('py -3.10 "%~dp0'))
+                arguments = command.split(' %* ', 1)[1].split()
+                self.assertEqual(['--abi', abi, '--mode', mode], arguments)
+                # 解析设备架构及Python运行时选项。
+                options = build.build_options(arguments)
+                root = Path(directory)
+                sdk = root / 'sdk'
+                aligner = sdk / 'build-tools' / '35.0.0' / 'zipalign.exe'
+                java = root / 'jdk' / 'bin' / 'java.exe'
+                signer = root / 'apksigner.jar'
+                keystore = root / 'release.jks'
+                for tool in (aligner, java, java.with_name('keytool.exe'), signer, keystore,
+                             root / 'scripts' / 'apk_size.py', root / 'scripts' / 'release_cache.py'):
+                    tool.parent.mkdir(parents=True, exist_ok=True)
+                    tool.write_bytes(b'fixture tool')
+                for (device, architecture), apk_name in build.APK_NAMES.items():
+                    folder = root / 'app' / 'build' / 'outputs' / 'apk' / device / architecture
+                    folder.mkdir(parents=True)
+                    with zipfile.ZipFile(folder / apk_name, 'w') as archive:
+                        archive.writestr('classes.dex', b'fresh selected APK')
+                        archive.writestr('assets/libmitv.so', b'fixture asset' * 100)
+                    (folder / 'output-metadata.json').write_text(build.json.dumps({
+                        'variantName': device + architecture.capitalize() + 'Release',
+                        'elements': [{'outputFile': apk_name}],
+                    }), encoding='utf-8')
+                output = root / 'Release'
+                output.mkdir()
+                for apk_name in build.APK_NAMES.values():
+                    (output / apk_name).write_bytes(b'old unselected APK')
+                calls = []
+
+                # 模拟工具输出并保留实际压缩校验发布流程。
+                def fake_run(command, env):
+                    calls.append(command)
+                    if command[0] == aligner and '-f' in command:
+                        shutil.copyfile(command[-2], command[-1])
+                    elif len(command) > 3 and command[3] == 'sign':
+                        shutil.copyfile(command[-1], command[command.index('--out') + 1])
+
+                for attribute, value in (('ROOT', root), ('OUTPUT', output),
+                                         ('os', SimpleNamespace(name='nt', environ={'JAVA_HOME': str(java.parent.parent)}))):
+                    stack.enter_context(patch.object(build, attribute, value))
+                stack.enter_context(patch.object(build, 'build_options', return_value=options))
+                stack.enter_context(patch.object(build, 'find_sdk', return_value=(sdk, signer)))
+                stack.enter_context(patch.object(build, 'signing_environment', return_value=(keystore, 'release', {})))
+                stack.enter_context(patch.object(build, 'run', side_effect=fake_run))
+                stack.enter_context(redirect_stdout(io.StringIO()))
+                # 构建并签名校验所选安卓发布包。
+                build.main()
+                self.assertEqual([f':app:assemble{variant}Release'],
+                                 [part for part in calls[0] if str(part).startswith(':app:')])
+                with zipfile.ZipFile(output / name) as archive:
+                    self.assertEqual(b'fresh selected APK', archive.read('classes.dex'))
+                for apk_name in build.APK_NAMES.values():
+                    if apk_name != name:
+                        self.assertEqual(b'old unselected APK', (output / apk_name).read_bytes())
+
     # 反查发布内容，验证复用、失效和失败保护。
     def test_repeated_build_reuses_only_unchanged_verified_outputs(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:

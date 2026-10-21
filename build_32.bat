@@ -7,7 +7,7 @@ for %%A in (%*) do if /i "%%~A"=="--no-pause" set "BUILD_PAUSE=0"
 for %%A in (%*) do if /i "%%~A"=="--help" set "BUILD_PAUSE=0"
 for %%A in (%*) do if /i "%%~A"=="-h" set "BUILD_PAUSE=0"
 
-rem Find Python 3.10 for the Android Python runtime.
+rem Locate Python 3.10 to run the shared build script.
 py -3.10 --version >nul 2>&1
 if not errorlevel 1 goto use_launcher
 python -c "import sys; sys.exit(sys.version_info[:2] != (3, 10))" >nul 2>&1
@@ -17,14 +17,14 @@ set "BUILD_EXIT=1"
 goto finish
 
 :use_launcher
-rem Build selected release APKs; forward architecture and pause options.
-py -3.10 "%~dp0scripts\build_all.py" %*
+rem Build only the architecture and device selected by this entry.
+py -3.10 "%~dp0scripts\build_all.py" %* --abi 32 --mode mobile
 set "BUILD_EXIT=%errorlevel%"
 goto finish
 
 :use_python
-rem Build selected release APKs; forward architecture and pause options.
-python "%~dp0scripts\build_all.py" %*
+rem Build only the architecture and device selected by this entry.
+python "%~dp0scripts\build_all.py" %* --abi 32 --mode mobile
 set "BUILD_EXIT=%errorlevel%"
 
 :finish
