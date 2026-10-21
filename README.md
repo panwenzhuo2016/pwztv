@@ -2,15 +2,15 @@
 
 ### Windows 一键打包
 
-双击根目录 `build_all.bat` 一次构建全部四种安装包，或使用下表中的独立入口只构建一种。需要 JDK 17 或更新版本、Python 3.10、Android SDK Platform 36.1 和 Build-Tools 35.0.0。电脑上的 Python 用于执行打包脚本，与 APK 是否携带 Python 运行时无关。通过 `ANDROID_HOME` 环境变量或 `local.properties` 中的 `sdk.dir` 指定 SDK；也支持项目根目录的 `.android-sdk`。首次构建需联网下载 Gradle 和依赖，启用 Python 片源支持时另需下载 Python 包。
+双击根目录 `build_all.bat` 一次构建全部四种 Release 安装包，输出到 `Release`；`build_all_debug.bat` 构建全部四种 Debug 安装包，输出到 `Release/debug`。也可使用下表中的独立入口只构建一种 Release 包。需要 JDK 17 或更新版本、Python 3.10、Android SDK Platform 36.1 和 Build-Tools 35.0.0。电脑上的 Python 用于执行打包脚本，与 APK 是否携带 Python 运行时无关。通过 `ANDROID_HOME` 环境变量或 `local.properties` 中的 `sdk.dir` 指定 SDK；也支持项目根目录的 `.android-sdk`。首次构建需联网下载 Gradle 和依赖，启用 Python 片源支持时另需下载 Python 包。
 
 手机使用 `build_32.bat` 或 `build_64.bat`；电视、盒子和投影使用 `build_32_tv.bat` 或 `build_64_tv.bat`。无人值守可追加 `--no-pause`，查看帮助可追加 `--help`。
 
-界面资源仅打包英文与中文（含简体、繁体），片源和国际频道保留。五个 BAT 均使用 Gradle 的 `assemble…Debug` 自动签名流程，校验后原样复制 APK，不额外压缩或重新签名。Debug 默认不启用 Release 的代码和资源裁剪，安装包通常比此前的 Release 小包更大。
+界面资源仅打包英文与中文（含简体、繁体），片源和国际频道保留。Release 开启代码和资源裁剪，并在签名前额外压缩 `assets/libmitv.so`，重新进行 16KB 原生库对齐并核对内容，其他原生库保留原压缩方式。Debug 使用 Gradle 的 `assemble…Debug` 自动签名流程，验签后原样复制 APK，不额外压缩或重新签名，默认不启用代码和资源裁剪，安装包通常更大。
 
 默认 APK **不携带 Python 运行时**，保留当前全部片源配置和 Java、JavaScript、直接采集接口及直播能力。现有随包配置没有直接声明 Python 片源；远程 Java 插件核心受保护，移除 Python 后仍需抽样验证插件播放。以后需要 Python 脚本源，可在对应 BAT 后追加 `--with-python`，例如 `build_64_tv.bat --with-python`。直接使用 Gradle 时对应 `-PwithPython=true`，默认值为 `false`。完整版本仅在首次使用 Python 源时启动运行时。默认版本遇到 Python 源会提示当前版本不支持该类型片源，其他来源继续正常加载。脚本在签名前检查 APK 内容，防止 Python 组件遗漏或误带入默认包；两种构建使用相同输出文件名，后一次成功构建会覆盖同架构旧包。
 
-脚本构建 Debug 版本，签名由 Gradle 自动完成，逐个验签成功后集中输出到根目录 `Release`（目录名保留）：
+两种构建的 APK 名称相同，但输出目录独立，缓存也独立，互不覆盖。以下独立入口构建 Release 包并输出到根目录 `Release`：
 
 | 打包入口 | 安装包 | 设备 |
 | --- | --- | --- |
@@ -21,9 +21,9 @@
 
 按设备的安卓系统架构选择安装包。极米需支持安装第三方安卓应用；iPhone、iPad 不支持这些 APK。
 
-Gradle 使用当前构建环境的调试密钥；默认位置通常是用户目录下的 `.android/debug.keystore`，缺失时由 Gradle 自动创建。恢复 Debug 构建方式不代表恢复原证书；旧包如果在其他电脑或 GitHub 上构建，仍需当时的调试密钥才能保证签名一致。签名不同无法覆盖安装，需先核对证书。现有 `.signing` 目录保留，但这五个入口不再创建或使用它。请备份实际使用的调试密钥，避免后续更新时变更签名。
+Release 复用 `.signing` 中的固定密钥，首次运行时创建；请备份整个目录，避免后续更新时变更签名。Debug 不使用 `.signing`，由 Gradle 使用当前构建环境的调试密钥；默认位置通常是用户目录下的 `.android/debug.keystore`，缺失时自动创建。恢复 Debug 构建方式不代表恢复原证书；旧包如果在其他电脑或 GitHub 上构建，仍需当时的调试密钥才能保证签名一致。Release 和 Debug 的签名通常不同，不能直接互相覆盖安装，需先核对证书。
 
-构建失败会返回非零退出码；`Release` 中可能保留上次成功的产物，以本次终端的 `SUCCESS` 和列出的文件为准。`build_all.bat` 更新全部四种安装包；独立入口仅更新所选安装包，其他已有安装包保留。
+构建失败会返回非零退出码；输出目录中可能保留上次成功的产物，以本次终端的 `SUCCESS` 和列出的文件为准。两个总入口分别更新对应目录中的全部四种安装包；独立入口仅更新所选 Release 安装包，其他已有安装包保留。
 
 ### 来源聚合与自动换源
 
