@@ -3,7 +3,6 @@
 from pathlib import Path
 from contextlib import ExitStack, redirect_stdout
 import io
-import shutil
 import subprocess
 import tempfile
 from types import SimpleNamespace
@@ -33,12 +32,9 @@ class BuildAllTest(unittest.TestCase):
                 options = build.build_options(arguments)
                 root = Path(directory)
                 sdk = root / 'sdk'
-                aligner = sdk / 'build-tools' / '35.0.0' / 'zipalign.exe'
                 java = root / 'jdk' / 'bin' / 'java.exe'
                 signer = root / 'apksigner.jar'
-                keystore = root / 'release.jks'
-                for tool in (aligner, java, java.with_name('keytool.exe'), signer, keystore,
-                             root / 'scripts' / 'apk_size.py', root / 'scripts' / 'release_cache.py'):
+                for tool in (java, signer, root / 'scripts' / 'release_cache.py'):
                     tool.parent.mkdir(parents=True, exist_ok=True)
                     tool.write_bytes(b'fixture tool')
                 for (device, architecture), apk_name in build.APK_NAMES.items():
@@ -48,6 +44,13 @@ class BuildAllTest(unittest.TestCase):
                         archive.writestr('classes.dex', b'fresh selected APK')
                         archive.writestr('assets/libmitv.so', b'fixture asset' * 100)
                     (folder / 'output-metadata.json').write_text(build.json.dumps({
+                        'variantName': device + architecture.capitalize() + 'Debug',
+                        'elements': [{'outputFile': apk_name}],
+                    }), encoding='utf-8')
+                    release = folder / 'release'
+                    release.mkdir()
+                    (release / apk_name).write_bytes(b'old Release APK must not be exported')
+                    (release / 'output-metadata.json').write_text(build.json.dumps({
                         'variantName': device + architecture.capitalize() + 'Release',
                         'elements': [{'outputFile': apk_name}],
                     }), encoding='utf-8')
@@ -57,28 +60,26 @@ class BuildAllTest(unittest.TestCase):
                     (output / apk_name).write_bytes(b'old unselected APK')
                 calls = []
 
-                # 模拟工具输出并保留实际压缩校验发布流程。
+                # 仅记录外部调用，保留原样复制与校验流程。
                 def fake_run(command, env):
                     calls.append(command)
-                    if command[0] == aligner and '-f' in command:
-                        shutil.copyfile(command[-2], command[-1])
-                    elif len(command) > 3 and command[3] == 'sign':
-                        shutil.copyfile(command[-1], command[command.index('--out') + 1])
 
                 for attribute, value in (('ROOT', root), ('OUTPUT', output),
                                          ('os', SimpleNamespace(name='nt', environ={'JAVA_HOME': str(java.parent.parent)}))):
                     stack.enter_context(patch.object(build, attribute, value))
                 stack.enter_context(patch.object(build, 'build_options', return_value=options))
                 stack.enter_context(patch.object(build, 'find_sdk', return_value=(sdk, signer)))
-                stack.enter_context(patch.object(build, 'signing_environment', return_value=(keystore, 'release', {})))
                 stack.enter_context(patch.object(build, 'run', side_effect=fake_run))
                 stack.enter_context(redirect_stdout(io.StringIO()))
-                # 构建并签名校验所选安卓发布包。
+                # 构建并原样导出Gradle自动签名的Debug包。
                 build.main()
-                self.assertEqual([f':app:assemble{variant}Release'],
+                self.assertEqual([f':app:assemble{variant}Debug'],
                                  [part for part in calls[0] if str(part).startswith(':app:')])
                 with zipfile.ZipFile(output / name) as archive:
                     self.assertEqual(b'fresh selected APK', archive.read('classes.dex'))
+                self.assertEqual((output / name).read_bytes(), (root / 'app' / 'build' / 'outputs' / 'apk' / mode / options.abis[0] / name).read_bytes())
+                self.assertFalse((root / '.signing').exists())
+                self.assertTrue(all('sign' not in call and '-genkeypair' not in call for call in calls))
                 for apk_name in build.APK_NAMES.values():
                     if apk_name != name:
                         self.assertEqual(b'old unselected APK', (output / apk_name).read_bytes())
@@ -88,12 +89,9 @@ class BuildAllTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             root = Path(directory)
             sdk = root / 'sdk'
-            aligner = sdk / 'build-tools' / '35.0.0' / 'zipalign.exe'
             java = root / 'jdk' / 'bin' / 'java.exe'
             signer = root / 'apksigner.jar'
-            keystore = root / 'release.jks'
-            for path in (java, java.with_name('keytool.exe'), signer, aligner, keystore,
-                         root / 'scripts' / 'apk_size.py', root / 'scripts' / 'release_cache.py'):
+            for path in (java, signer, root / 'scripts' / 'release_cache.py'):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b'fixture tool or key')
             sources = {name: root / name for name in ('p.apk', 'p-tv.apk')}
@@ -101,23 +99,18 @@ class BuildAllTest(unittest.TestCase):
                 with zipfile.ZipFile(path, 'w') as archive:
                     archive.writestr('classes.dex', b'fixture')
                     archive.writestr('assets/libmitv.so', b'fixture asset' * 100)
-            state = {'signed': 0, 'fail_verify': False, 'idsig': True}
+            for source in sources.values():
+                source.with_name(source.name + '.idsig').write_bytes(b'fixture v4')
+            state = {'verified': 0, 'fail_verify': False}
 
-            # 模拟对齐和签名工具，仅处理临时测试产物。
+            # 模拟验签并验证失败时不发布任何产物。
             def fake_run(command, env):
-                if command[0] == aligner and '-f' in command:
-                    shutil.copyfile(command[-2], command[-1])
-                elif len(command) > 3 and command[3] == 'sign':
-                    destination = command[command.index('--out') + 1]
-                    shutil.copyfile(command[-1], destination)
-                    if state['idsig']:
-                        destination.with_name(destination.name + '.idsig').write_bytes(b'fixture v4')
-                    state['signed'] += 1
-                elif len(command) > 3 and command[3] == 'verify' and state['fail_verify']:
-                    if command[-1].name == 'p.apk':
+                if len(command) > 3 and command[3] == 'verify':
+                    if state['fail_verify'] and command[-1].name == 'p.apk':
                         raise subprocess.CalledProcessError(1, ['fixture verify'])
+                    state['verified'] += 1
 
-            # 解析参数并选择架构与Python支持。
+            # 解析设备架构及Python运行时选项。
             options = build.build_options([])
             output = root / 'Release'
             for attribute, value in (('ROOT', root), ('OUTPUT', output),
@@ -125,86 +118,85 @@ class BuildAllTest(unittest.TestCase):
                 stack.enter_context(patch.object(build, attribute, value))
             stack.enter_context(patch.object(build, 'build_options', return_value=options))
             stack.enter_context(patch.object(build, 'find_sdk', return_value=(sdk, signer)))
-            stack.enter_context(patch.object(build, 'signing_environment', return_value=(keystore, 'release', {})))
-            stack.enter_context(patch.object(build, 'release_apks', return_value=sources))
+            stack.enter_context(patch.object(build, 'debug_apks', return_value=sources))
             stack.enter_context(patch.object(build, 'run', side_effect=fake_run))
             messages = stack.enter_context(redirect_stdout(io.StringIO()))
-            # 构建并签名校验所选安卓发布包。
+            # 构建并原样导出Gradle自动签名的Debug包。
             build.main()
-            self.assertEqual(2, state['signed'])
+            self.assertEqual(2, state['verified'])
             original = {path.name: (path.read_bytes(), path.stat().st_mtime_ns) for path in output.iterdir()}
-            # 构建并签名校验所选安卓发布包。
+            # 构建并原样导出Gradle自动签名的Debug包。
             build.main()
-            self.assertEqual(2, state['signed'])
-            self.assertIn('Reusing verified release: p.apk', messages.getvalue())
+            self.assertEqual(2, state['verified'])
+            self.assertIn('Reusing verified Debug APK: p.apk', messages.getvalue())
             for name, expected in original.items():
                 actual = output / name
                 self.assertEqual(expected, (actual.read_bytes(), actual.stat().st_mtime_ns))
             with zipfile.ZipFile(sources['p.apk'], 'a') as archive:
                 archive.writestr('new.txt', b'updated source')
-            # 构建并签名校验所选安卓发布包。
+            # 构建并原样导出Gradle自动签名的Debug包。
             build.main()
-            self.assertEqual(3, state['signed'])
+            self.assertEqual(3, state['verified'])
             with zipfile.ZipFile(output / 'p.apk') as archive:
                 self.assertEqual(b'updated source', archive.read('new.txt'))
             (output / 'p-tv.apk').write_bytes(b'corrupt release')
-            # 构建并签名校验所选安卓发布包。
+            # 构建并原样导出Gradle自动签名的Debug包。
             build.main()
-            self.assertEqual(4, state['signed'])
+            self.assertEqual(4, state['verified'])
             with zipfile.ZipFile(output / 'p-tv.apk') as archive:
                 self.assertEqual(b'fixture', archive.read('classes.dex'))
             with zipfile.ZipFile(sources['p.apk'], 'a') as archive:
                 archive.writestr('v4-disabled.txt', b'fixture without idsig')
-            state['idsig'] = False
-            # 构建并签名校验所选安卓发布包。
+            sources['p.apk'].with_name('p.apk.idsig').unlink()
+            # 构建并原样导出Gradle自动签名的Debug包。
             build.main()
-            self.assertEqual(5, state['signed'])
+            self.assertEqual(5, state['verified'])
             self.assertFalse((output / 'p.apk.idsig').exists())
             with zipfile.ZipFile(output / 'p.apk') as archive:
                 self.assertEqual(b'fixture without idsig', archive.read('v4-disabled.txt'))
-            # 构建并签名校验所选安卓发布包。
+            # 构建并原样导出Gradle自动签名的Debug包。
             build.main()
-            self.assertEqual(5, state['signed'])
+            self.assertEqual(5, state['verified'])
             published = {path.name: path.read_bytes() for path in output.iterdir()}
             for path in sources.values():
                 with zipfile.ZipFile(path, 'a') as archive:
                     archive.writestr('fail.txt', b'not published')
             state['fail_verify'] = True
             with self.assertRaises(subprocess.CalledProcessError):
-                # 构建并签名校验所选安卓发布包。
+                # 构建并原样导出Gradle自动签名的Debug包。
                 build.main()
             self.assertEqual(published, {path.name: path.read_bytes() for path in output.iterdir()})
 
     # 验证默认只选两种64位包且明确关闭Python。
     def test_default_build_excludes_python_and_32bit(self):
-        # 解析参数并选择架构与Python支持。
+        # 解析设备架构及Python运行时选项。
         options = build.build_options([])
         self.assertEqual(('arm64_v8a',), options.abis)
         self.assertFalse(options.with_python)
-        # 显式选择Python依赖避免复用其他构建设置。
+        # 按所选设备架构构建Debug并显式设置Python依赖。
         command = build.gradle_command(options)
         self.assertIn('-PwithPython=false', command)
         self.assertIn('--configuration-cache', command)
         self.assertNotIn('--no-configuration-cache', command)
-        self.assertEqual({':app:assembleMobileArm64_v8aRelease', ':app:assembleLeanbackArm64_v8aRelease'},
+        self.assertEqual({':app:assembleMobileArm64_v8aDebug', ':app:assembleLeanbackArm64_v8aDebug'},
                          {part for part in command if part.startswith(':app:')})
 
     # 验证Python开关与32位参数可独立组合。
     def test_optional_python_can_be_combined_with_32bit(self):
         for arguments, count in [(['--with-python'], 2), (['--include-32bit', '--with-python', '--no-pause'], 4)]:
             with self.subTest(arguments=arguments):
-                # 解析参数并选择架构与Python支持。
+                # 解析设备架构及Python运行时选项。
                 options = build.build_options(arguments)
-                # 显式选择Python依赖避免复用其他构建设置。
+                # 按所选设备架构构建Debug并显式设置Python依赖。
                 command = build.gradle_command(options)
                 self.assertTrue(options.with_python)
                 self.assertIn('-PwithPython=true', command)
                 self.assertIn('--no-configuration-cache', command)
                 self.assertNotIn('--configuration-cache', command)
                 self.assertEqual(count, sum(part.startswith(':app:') for part in command))
-        # 解析参数并选择架构与Python支持。
+        # 解析设备架构及Python运行时选项。
         options = build.build_options(['--include-32bit'])
-        # 显式选择Python依赖避免复用其他构建设置。
+        # 按所选设备架构构建Debug并显式设置Python依赖。
         self.assertIn('-PwithPython=false', build.gradle_command(options))
 
     # 反查ZIP内容以拒绝运行时误带或漏带。

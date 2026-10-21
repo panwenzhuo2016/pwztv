@@ -1,4 +1,4 @@
-"""Build and sign Android releases for the selected device and architecture."""
+"""Build Gradle-signed Debug APKs for the selected device and architecture."""
 
 import argparse
 import hashlib
@@ -6,19 +6,16 @@ import json
 import os
 from pathlib import Path
 import re
-import secrets
 import shutil
 import subprocess
 import sys
 import tempfile
 import zipfile
 
-from apk_size import compress_mitv, verify_contents
 from release_cache import ReleaseCache
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "Release"
-SIGNING = ROOT / ".signing"
 MODES = ("mobile", "leanback")
 APK_NAMES = {
     ("mobile", "arm64_v8a"): "p.apk",
@@ -48,9 +45,9 @@ def build_options(argv=None):
     return options
 
 
-# 按所选设备架构构建并显式设置Python依赖。
+# 按所选设备架构构建Debug并显式设置Python依赖。
 def gradle_command(options):
-    tasks = [f":app:assemble{mode.capitalize()}{abi.capitalize()}Release" for mode in options.modes for abi in options.abis]
+    tasks = [f":app:assemble{mode.capitalize()}{abi.capitalize()}Debug" for mode in options.modes for abi in options.abis]
     return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", "gradlew.bat", *tasks,
             f"-PwithPython={str(options.with_python).lower()}",
             "--no-configuration-cache" if options.with_python else "--configuration-cache",
@@ -101,63 +98,26 @@ def find_sdk():
     )
 
 
-# 创建或复用本地长期签名密钥。
-def signing_environment(keytool, env):
-    config = SIGNING / "release.json"
-    keystore = SIGNING / "release.jks"
-    try:
-        SIGNING.mkdir()
-        created = True
-    except FileExistsError:
-        created = False
-        if not config.is_file() or not keystore.is_file():
-            raise RuntimeError(
-                "Incomplete .signing directory or another build is creating the key. "
-                "Wait for it to finish, or restore release.json and release.jks from backup."
-            )
-    if created:
-        settings = {"alias": "pwztv", "password": secrets.token_urlsafe(32)}
-    else:
-        settings = json.loads(config.read_text(encoding="utf-8"))
-    env = dict(env, PWZTV_STORE_PASSWORD=settings["password"])
-    if created:
-        config.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
-        # 执行外部工具并保留失败退出码。
-        run([
-            keytool, "-genkeypair", "-keystore", keystore, "-storetype", "PKCS12",
-            "-alias", settings["alias"], "-storepass:env", "PWZTV_STORE_PASSWORD",
-            "-keypass:env", "PWZTV_STORE_PASSWORD", "-keyalg", "RSA", "-keysize", "3072",
-            "-validity", "10000", "-dname", "CN=PWZTV, OU=Android, O=PWZTV, C=CN",
-        ], env)
-    # 执行外部工具并保留失败退出码。
-    run([
-        keytool, "-list", "-keystore", keystore, "-alias", settings["alias"],
-        "-storepass:env", "PWZTV_STORE_PASSWORD",
-    ], env)
-    print("Back up the entire .signing directory; updates require the same key.", flush=True)
-    return keystore, settings["alias"], env
-
-
-# 按构建元数据校验本次发布产物。
-def release_apks(expected):
+# 按构建元数据只收集本次Debug安装包。
+def debug_apks(expected):
     packages = {}
     for metadata in (ROOT / "app" / "build" / "outputs" / "apk").rglob("output-metadata.json"):
         data = json.loads(metadata.read_text(encoding="utf-8"))
-        if not data.get("variantName", "").endswith("Release"):
+        if not data.get("variantName", "").endswith("Debug"):
             continue
         for item in data.get("elements", []):
             name = item["outputFile"]
             if name in expected:
                 apk = metadata.parent / name
                 if name in packages or not apk.is_file():
-                    raise RuntimeError(f"Duplicate or missing release APK: {name}")
+                    raise RuntimeError(f"Duplicate or missing Debug APK: {name}")
                 packages[name] = apk
     if set(packages) != expected:
-        raise RuntimeError("Missing release APKs: " + ", ".join(sorted(expected - packages.keys())))
+        raise RuntimeError("Missing Debug APKs: " + ", ".join(sorted(expected - packages.keys())))
     return packages
 
 
-# 构建并签名校验所选安卓发布包。
+# 构建并原样导出Gradle自动签名的Debug包。
 def main():
     # 解析设备架构及Python运行时选项。
     options = build_options()
@@ -168,31 +128,25 @@ def main():
     env = dict(os.environ)
     java_home = env.get("JAVA_HOME", "").strip('"')
     java = Path(java_home) / "bin" / "java.exe" if java_home else Path(shutil.which("java") or "")
-    keytool = java.parent / "keytool.exe"
-    if not java.is_file() or not keytool.is_file():
+    if not java.is_file():
         raise RuntimeError("JDK 17 or newer is required. Set JAVA_HOME to your JDK directory.")
     env["JAVA_HOME"] = str(java.parent.parent)
     # 查找本机安卓平台与签名工具。
     sdk, signer = find_sdk()
-    aligner = sdk / 'build-tools' / '35.0.0' / 'zipalign.exe'
-    if not aligner.is_file():
-        raise RuntimeError('zipalign missing. Reinstall Android SDK Build-Tools 35.0.0.')
     env.update(ANDROID_HOME=str(sdk), ANDROID_SDK_ROOT=str(sdk))
-    # 创建或复用本地长期签名密钥。
-    keystore, alias, env = signing_environment(keytool, env)
+    print("Build mode: Debug; signing is managed by Gradle.", flush=True)
     print(f"Python source support: {'enabled' if options.with_python else 'disabled'}", flush=True)
-    # 按所选设备架构构建并显式设置Python依赖。
+    # 按所选设备架构构建Debug并显式设置Python依赖。
     command = gradle_command(options)
     # 执行外部工具并保留失败退出码。
     run(command, env)
-    # 按构建元数据校验本次发布产物。
-    packages = release_apks(expected)
+    # 按构建元数据只收集本次Debug安装包。
+    packages = debug_apks(expected)
     OUTPUT.mkdir(exist_ok=True)
-    # 汇总工具、密钥、脚本和构建选项指纹。
-    cache = ReleaseCache(ROOT / '.gradle' / 'release-cache', OUTPUT,
-                         [Path(__file__), ROOT / 'scripts' / 'apk_size.py',
-                          ROOT / 'scripts' / 'release_cache.py', java, signer, aligner, keystore],
-                         {'alias': alias, 'with_python': options.with_python})
+    # 汇总工具、脚本和构建选项指纹。
+    cache = ReleaseCache(ROOT / '.gradle' / 'debug-build-cache', OUTPUT,
+                         [Path(__file__), ROOT / 'scripts' / 'release_cache.py', java, signer],
+                         {'build_type': 'Debug', 'with_python': options.with_python})
     with tempfile.TemporaryDirectory(prefix=".staging-", dir=OUTPUT) as staging:
         staged = Path(staging)
         prepared = []
@@ -203,26 +157,14 @@ def main():
             fingerprint = cache.fingerprint(source)
             # 只复用内容一致且附属签名完整的产物。
             if cache.matches(name, fingerprint):
-                print(f'Reusing verified release: {name}', flush=True)
+                print(f'Reusing verified Debug APK: {name}', flush=True)
                 continue
-            compressed = staged / (name + '.compressed')
-            aligned = staged / (name + '.aligned')
-            # 仅压缩流式读取的MITV资源并保留其他条目属性。
-            compress_mitv(source, compressed)
             # 执行外部工具并保留失败退出码。
-            run([aligner, '-P', '16', '-f', '4', compressed, aligned], env)
-            # 执行外部工具并保留失败退出码。
-            run([aligner, '-c', '-P', '16', '4', aligned], env)
-            # 反查对齐后的全部内容与非目标压缩方式。
-            verify_contents(source, aligned)
-            # 执行外部工具并保留失败退出码。
-            run([
-                java, "-jar", signer, "sign", "--ks", keystore, "--ks-key-alias", alias,
-                "--ks-pass", "env:PWZTV_STORE_PASSWORD", "--key-pass", "env:PWZTV_STORE_PASSWORD",
-                "--out", staged / name, aligned,
-            ], env)
-            # 执行外部工具并保留失败退出码。
-            run([java, "-jar", signer, "verify", "--verbose", "--print-certs", staged / name], env)
+            run([java, "-jar", signer, "verify", "--verbose", "--print-certs", source], env)
+            shutil.copyfile(source, staged / name)
+            idsig = source.with_name(source.name + ".idsig")
+            if idsig.is_file():
+                shutil.copyfile(idsig, staged / idsig.name)
             # 原子记录已验签产物，发布后才能命中。
             cache.save(name, fingerprint, staged)
             prepared.append(name)
@@ -233,7 +175,7 @@ def main():
                 idsig.replace(OUTPUT / idsig.name)
             else:
                 (OUTPUT / (name + '.idsig')).unlink(missing_ok=True)
-    print(f"\nSUCCESS: {len(packages)} signed release APKs are in {OUTPUT}", flush=True)
+    print(f"\nSUCCESS: {len(packages)} Gradle-signed Debug APKs are in {OUTPUT}", flush=True)
     for name in sorted(packages):
         apk = OUTPUT / name
         digest = hashlib.sha256(apk.read_bytes()).hexdigest()
@@ -242,7 +184,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        # 构建并签名校验所选安卓发布包。
+        # 构建并原样导出Gradle自动签名的Debug包。
         main()
     except subprocess.CalledProcessError as error:
         print(f"Build failed (exit code {error.returncode}); no successful output was published.", file=sys.stderr)
