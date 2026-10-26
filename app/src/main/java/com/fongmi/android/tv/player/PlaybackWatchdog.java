@@ -9,16 +9,17 @@ import com.fongmi.android.tv.utils.FailureGuard;
 
 import java.util.function.Supplier;
 
-public final class VodPlaybackWatchdog {
+public final class PlaybackWatchdog {
     private static final long CHECK_INTERVAL_MS = 1000;
     private final Supplier<? extends Player> player;
     private final Runnable stalled, stable, tick;
     // 使用单调时钟统计实际播放后的卡顿。
     private final PlaybackStallTracker tracker = new PlaybackStallTracker(SystemClock::elapsedRealtime);
-    private boolean enabled, recover;
+    private PlaybackMode mode = PlaybackMode.DEFAULT;
+    private boolean recover;
 
     // 复用播放器回调执行换线与稳定播放通知。
-    public VodPlaybackWatchdog(Supplier<? extends Player> player, Runnable stalled, Runnable stable) {
+    public PlaybackWatchdog(Supplier<? extends Player> player, Runnable stalled, Runnable stable) {
         this.player = player;
         this.stalled = stalled;
         this.stable = stable;
@@ -26,31 +27,37 @@ public final class VodPlaybackWatchdog {
         tick = this::check;
     }
 
-    // 启用点播缓冲并遵守当前来源的自动换线设置。
-    public void configure(boolean recover) {
-        enabled = true;
+    // 按播放场景观察卡顿并遵守自动换线设置。
+    public void configure(PlaybackMode mode, boolean recover) {
+        if (this.mode != mode || this.recover != recover) {
+            // 停止观察并排除拖动进度及切集引起的缓冲。
+            reset();
+        }
+        this.mode = mode;
         this.recover = recover;
+        // 状态变化时启动唯一的主线程观察任务。
+        changed();
     }
 
-    // 判断当前播放器是否使用点播优化。
-    public boolean enabled() {
-        return enabled;
+    // 获取当前缓冲与卡顿监测的播放场景。
+    public PlaybackMode mode() {
+        return mode;
     }
 
     // 状态变化时启动唯一的主线程观察任务。
     public void changed() {
-        if (!enabled) return;
+        if (mode == PlaybackMode.DEFAULT) return;
         App.post(tick, 0);
     }
 
     // 检查卡顿且失败时停止当前观察任务。
     private void check() {
         // 隔离可恢复异常并返回是否完成当前操作。
-        if (!FailureGuard.run("vod.bufferWatchdog", () -> {
+        if (!FailureGuard.run("playback.bufferWatchdog", () -> {
             Player current = player.get();
             if (current == null) return;
             int state = current.getPlaybackState();
-            boolean eligible = current.getPlayWhenReady() && !current.isCurrentMediaItemLive()
+            boolean eligible = current.getPlayWhenReady() && (mode == PlaybackMode.LIVE || !current.isCurrentMediaItemLive())
                     && (state != Player.STATE_READY || current.isPlaying());
             // 识别反复卡顿及长卡顿并只触发一次恢复。
             PlaybackStallTracker.Decision decision = tracker.update(state, eligible, recover);

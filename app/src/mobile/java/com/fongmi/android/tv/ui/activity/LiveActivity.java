@@ -209,7 +209,10 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
         mBinding.epgData.setAdapter(mEpgDataAdapter = new EpgDataAdapter(this));
     }
 
+    // 初始化直播播放器并启用短缓冲及卡顿观察。
     private void setVideoView() {
+        // 为直播启用短缓冲并遵守自动换线设置。
+        mPlayers.configureLivePlayback(Setting.isChange());
         mPlayers.init(mBinding.exo);
         PlaybackService.start(mPlayers);
         setScale(Setting.getLiveScale());
@@ -429,9 +432,12 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
         mBinding.control.action.across.setActivated(Setting.isAcross());
     }
 
+    // 同步直播自动换线开关与卡顿观察策略。
     private void onChange() {
         setR1Callback();
         Setting.putChange(!Setting.isChange());
+        // 为直播启用短缓冲并遵守自动换线设置。
+        mPlayers.configureLivePlayback(Setting.isChange());
         mBinding.control.action.change.setActivated(Setting.isChange());
     }
 
@@ -727,12 +733,14 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
         showProgress();
     }
 
-    // 阻止已标记地址的迟到结果重新开始播放。
+    // 播放未屏蔽线路并同步直播自动恢复设置。
     private void start(Result result) {
         // 获取设备共享的直播线路标记。
         LiveLineStore store = LiveLineStore.get();
         // 查询地址是否被用户标记为内容不符。
         if (mChannel == null || store.isBlocked(mChannel.getCurrent())) return;
+        // 为直播启用短缓冲并遵守自动换线设置。
+        mPlayers.configureLivePlayback(Setting.isChange());
         mPlayers.start(result, false, getTimeout());
     }
 
@@ -883,7 +891,7 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
-    // 播放成功后重置线路失败状态。
+    // 稳定播放后清除失败记录避免反复切回卡顿线。
     public void onPlayerEvent(PlayerEvent event) {
         if (!event.getTag().equals(tag)) return;
         switch (event.getState()) {
@@ -900,6 +908,8 @@ public class LiveActivity extends BaseActivity implements CustomKeyDown.Listener
                 hideProgress();
                 checkControl();
                 mPlayers.reset();
+                break;
+            case PlayerEvent.STABLE:
                 // 获取设备内共享的来源状态表。
                 // 成功播放后清除对应失败记录。
                 if (mChannel != null) SourceHealth.get().success(mChannel.getCurrent());

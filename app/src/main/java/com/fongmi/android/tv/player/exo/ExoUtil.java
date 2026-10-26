@@ -26,6 +26,7 @@ import com.fongmi.android.tv.BuildConfig;
 import com.fongmi.android.tv.Setting;
 import com.fongmi.android.tv.bean.Drm;
 import com.fongmi.android.tv.bean.Sub;
+import com.fongmi.android.tv.player.PlaybackMode;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -38,24 +39,27 @@ public class ExoUtil {
         return Util.getUserAgent(App.get(), BuildConfig.APPLICATION_ID);
     }
 
-    // 点播增加恢复缓冲且按设备限制缓存内存。
-    public static LoadControl buildLoadControl(boolean vod) {
+    // 按直播或点播场景配置缓冲及设备缓存额度。
+    public static LoadControl buildLoadControl(PlaybackMode mode) {
         DefaultLoadControl.Builder builder = new DefaultLoadControl.Builder();
-        if (!vod) return builder.setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS * Setting.getBuffer(), DefaultLoadControl.DEFAULT_MAX_BUFFER_MS * Setting.getBuffer(), DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS, DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS).build();
+        if (mode == PlaybackMode.DEFAULT) return builder.setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS * Setting.getBuffer(), DefaultLoadControl.DEFAULT_MAX_BUFFER_MS * Setting.getBuffer(), DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS, DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS).build();
+        boolean constrained = App.resourceBudget().constrained || !android.os.Process.is64Bit();
+        // 直播兼顾恢复速度与缓存额度并限制累计缓冲。
+        PlaybackBufferPolicy policy = mode == PlaybackMode.LIVE ? PlaybackBufferPolicy.forLiveDevice(Setting.getBuffer(), constrained)
         // 增加恢复缓冲并限制点播缓存时长与内存。
-        PlaybackBufferPolicy policy = PlaybackBufferPolicy.forDevice(Setting.getBuffer(), App.resourceBudget().constrained || !android.os.Process.is64Bit());
+                : PlaybackBufferPolicy.forDevice(Setting.getBuffer(), constrained);
         return builder.setBufferDurationsMs(policy.minimumMs(), policy.maximumMs(), policy.startupMs(), policy.rebufferMs())
                 .setTargetBufferBytes(policy.targetBytes()).setPrioritizeTimeOverSizeThresholds(false).build();
     }
 
-    // 点播允许自适应码率并保留用户手选轨道。
-    public static TrackSelector buildTrackSelector(boolean vod) {
+    // 允许自适应码率并保留用户手选轨道。
+    public static TrackSelector buildTrackSelector(boolean adaptive) {
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(App.get());
         DefaultTrackSelector.Parameters.Builder builder = trackSelector.buildUponParameters();
         if (Setting.isPreferAAC()) builder.setPreferredAudioMimeType(MimeTypes.AUDIO_AAC);
         builder.setPreferredTextLanguage(Locale.getDefault().getISO3Language());
         builder.setTunnelingEnabled(Setting.isTunnel());
-        builder.setForceHighestSupportedBitrate(!vod);
+        builder.setForceHighestSupportedBitrate(!adaptive);
         trackSelector.setParameters(builder.build());
         return trackSelector;
     }

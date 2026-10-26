@@ -20,4 +20,20 @@ public class PlaybackBufferPolicyTest {
             }
         }
     }
+
+    // 反查直播所有档位均使用短恢复且缓存有上限。
+    @Test public void boundsLiveBufferForBothMemoryBudgets() {
+        for (boolean constrained : new boolean[]{true, false}) {
+            for (int multiplier : new int[]{Integer.MIN_VALUE, 0, 1, 2, 10, Integer.MAX_VALUE}) {
+                // 直播兼顾恢复速度与缓存额度并限制累计缓冲。
+                PlaybackBufferPolicy policy = PlaybackBufferPolicy.forLiveDevice(multiplier, constrained);
+                assertEquals(1500, policy.startupMs());
+                assertEquals(3000, policy.rebufferMs());
+                assertTrue(policy.minimumMs() >= policy.rebufferMs());
+                assertTrue(policy.maximumMs() >= policy.minimumMs());
+                assertTrue(policy.maximumMs() <= (constrained ? 20_000 : 30_000));
+                assertEquals((constrained ? 8 : 16) * 1024 * 1024, policy.targetBytes());
+            }
+        }
+    }
 }

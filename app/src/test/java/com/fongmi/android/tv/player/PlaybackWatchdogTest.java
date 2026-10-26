@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
-public class VodPlaybackWatchdogTest {
+public class PlaybackWatchdogTest {
     // 反查三次卡顿后仅回调一次并停止旧观察任务。
     @Test public void pollsOneTaskAndDeliversStallRecovery() {
         AtomicLong clock = new AtomicLong();
@@ -39,9 +39,9 @@ public class VodPlaybackWatchdogTest {
                 return null;
             });
             // 复用播放器回调执行换线与稳定播放通知。
-            VodPlaybackWatchdog watchdog = new VodPlaybackWatchdog(() -> player, stalled, stable);
-            // 启用点播缓冲并遵守当前来源的自动换线设置。
-            watchdog.configure(true);
+            PlaybackWatchdog watchdog = new PlaybackWatchdog(() -> player, stalled, stable);
+            // 按播放场景观察卡顿并遵守自动换线设置。
+            watchdog.configure(PlaybackMode.VOD, true);
             // 状态变化时启动唯一的主线程观察任务。
             watchdog.changed();
             // 执行唯一待运行任务并验证调度数量。
@@ -107,12 +107,12 @@ public class VodPlaybackWatchdogTest {
                 return null;
             });
             // 复用播放器回调执行换线与稳定播放通知。
-            VodPlaybackWatchdog watchdog = new VodPlaybackWatchdog(() -> player, stalled, stable);
+            PlaybackWatchdog watchdog = new PlaybackWatchdog(() -> player, stalled, stable);
             // 状态变化时启动唯一的主线程观察任务。
             watchdog.changed();
             assertTrue(pending.isEmpty());
-            // 启用点播缓冲并遵守当前来源的自动换线设置。
-            watchdog.configure(true);
+            // 按播放场景观察卡顿并遵守自动换线设置。
+            watchdog.configure(PlaybackMode.VOD, true);
             // 状态变化时启动唯一的主线程观察任务。
             watchdog.changed();
             // 执行唯一待运行任务并验证调度数量。
