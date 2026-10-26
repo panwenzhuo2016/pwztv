@@ -6,6 +6,13 @@ import com.fongmi.android.tv.bean.History;
 import com.fongmi.android.tv.bean.Vod;
 
 public final class VideoRecovery {
+    // 保存有效播放进度且忽略新线路未加载时的零值。
+    public static void remember(VideoFallback fallback, History history, long position, long duration, boolean single) {
+        if (position >= 0 && duration > 0) history.setPosition(position);
+        // 保存换站前集数与内存播放进度。
+        fallback.remember(history.getVodRemarks(), history.getPosition(), single);
+    }
+
     // 查找换站后相同集数并保留原播放进度。
     public static boolean resume(VideoFallback fallback, Vod vod, History history) {
         // 判断是否存在待续播的集数。

@@ -59,7 +59,11 @@ public final class VideoFallback {
 
     // 保存换站前集数与内存播放进度。
     public void remember(String episode, long position, boolean single) {
-        if (!this.episode.isEmpty()) return;
+        if (!this.episode.isEmpty()) {
+            // 按集名或相同数字匹配续播集数。
+            if (matchesEpisode(episode, single)) this.position = Math.max(0, position);
+            return;
+        }
         this.episode = episode == null ? "" : episode;
         this.position = Math.max(0, position);
         this.single = single;

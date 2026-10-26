@@ -8,6 +8,7 @@ public class PlayerEvent {
     public static final int PLAYING = 10;
     public static final int TRACK = 11;
     public static final int SIZE = 12;
+    public static final int STABLE = 13;
 
     private final String tag;
     private final int state;

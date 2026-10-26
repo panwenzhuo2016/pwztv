@@ -29,7 +29,9 @@ import androidx.media3.common.Player;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.VideoSize;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.LoadControl;
 import androidx.media3.exoplayer.drm.FrameworkMediaDrm;
+import androidx.media3.exoplayer.trackselection.TrackSelector;
 import androidx.media3.exoplayer.util.EventLogger;
 import androidx.media3.ui.PlayerView;
 
@@ -89,6 +91,7 @@ public class Players implements Player.Listener, ParseCallback {
     private final StringBuilder builder;
     private final Formatter formatter;
     private final Runnable runnable;
+    private final VodPlaybackWatchdog vodWatchdog;
 
     private Map<String, String> headers;
     private MediaSessionCompat session;
@@ -121,6 +124,9 @@ public class Players implements Player.Listener, ParseCallback {
         builder = new StringBuilder();
         provider = new ErrorMsgProvider();
         runnable = () -> ErrorEvent.timeout(tag);
+        // 复用播放器回调执行换线与稳定播放通知。
+        vodWatchdog = new VodPlaybackWatchdog(() -> exoPlayer, () -> ErrorEvent.timeout(tag),
+                () -> PlayerEvent.state(tag, PlayerEvent.STABLE));
         formatter = new Formatter(builder, Locale.getDefault());
         audioManager = (AudioManager) activity.getSystemService(Context.AUDIO_SERVICE);
         createSession(activity);
@@ -145,8 +151,13 @@ public class Players implements Player.Listener, ParseCallback {
         setMediaItem();
     }
 
+    // 初始化播放器并仅为点播应用弱网优化。
     private void setPlayer(PlayerView view) {
-        exoPlayer = new ExoPlayer.Builder(App.get()).setLoadControl(ExoUtil.buildLoadControl()).setTrackSelector(ExoUtil.buildTrackSelector()).setRenderersFactory(ExoUtil.buildRenderersFactory(isHard() ? EXTENSION_RENDERER_MODE_ON : EXTENSION_RENDERER_MODE_PREFER)).setMediaSourceFactory(ExoUtil.buildMediaSourceFactory()).build();
+        // 点播增加恢复缓冲且按设备限制缓存内存。
+        LoadControl loadControl = ExoUtil.buildLoadControl(vodWatchdog.enabled());
+        // 点播允许自适应码率并保留用户手选轨道。
+        TrackSelector trackSelector = ExoUtil.buildTrackSelector(vodWatchdog.enabled());
+        exoPlayer = new ExoPlayer.Builder(App.get()).setLoadControl(loadControl).setTrackSelector(trackSelector).setRenderersFactory(ExoUtil.buildRenderersFactory(isHard() ? EXTENSION_RENDERER_MODE_ON : EXTENSION_RENDERER_MODE_PREFER)).setMediaSourceFactory(ExoUtil.buildMediaSourceFactory()).build();
         if (BuildConfig.DEBUG) exoPlayer.addAnalyticsListener(new EventLogger());
         exoPlayer.setAudioAttributes(AudioAttributes.DEFAULT, true);
         exoPlayer.setHandleAudioBecomingNoisy(true);
@@ -154,6 +165,12 @@ public class Players implements Player.Listener, ParseCallback {
         exoPlayer.addListener(this);
         view.setPlayer(exoPlayer);
         this.view = view;
+    }
+
+    // 为点播启用弱网策略并配置当前来源自动恢复。
+    public void configureVodPlayback(boolean recover) {
+        // 启用点播缓冲并遵守当前来源的自动换线设置。
+        vodWatchdog.configure(recover);
     }
 
     public void setDanmakuView(DanmakuView view) {
@@ -396,7 +413,10 @@ public class Players implements Player.Listener, ParseCallback {
         if (danPlayer != null) danPlayer.pause();
     }
 
+    // 停止播放并取消卡顿观察任务。
     public void stop() {
+        // 停止观察并排除拖动进度及切集引起的缓冲。
+        vodWatchdog.reset();
         if (exoPlayer != null) exoPlayer.stop();
         if (danPlayer != null) danPlayer.stop();
         stopParse();
@@ -411,7 +431,10 @@ public class Players implements Player.Listener, ParseCallback {
         App.execute(() -> Source.get().stop());
     }
 
+    // 释放播放器并停止旧实例的卡顿观察。
     private void releasePlayer() {
+        // 停止观察并排除拖动进度及切集引起的缓冲。
+        vodWatchdog.reset();
         if (exoPlayer != null) exoPlayer.release();
         if (danPlayer != null) danPlayer.release();
         if (view != null) view.setPlayer(null);
@@ -479,7 +502,10 @@ public class Players implements Player.Listener, ParseCallback {
         setMediaItem(result.getHeader(), result.getRealUrl(), result.getFormat(), result.getDrm(), result.getSubs(), result.getDanmaku(), timeout);
     }
 
+    // 新线路开始前清除旧线路卡顿统计。
     private void setMediaItem(Map<String, String> headers, String url, String format, Drm drm, List<Sub> subs, List<Danmaku> danmakus, long timeout) {
+        // 停止观察并排除拖动进度及切集引起的缓冲。
+        vodWatchdog.reset();
         if (exoPlayer != null) exoPlayer.setMediaItem(ExoUtil.getMediaItem(this.headers = checkUa(headers), UrlUtil.uri(this.url = url), this.format = format, this.drm = drm, checkSub(this.subs = subs), decode));
         Logger.t(TAG).d("headers=%s\nurl=%s\nformat=%s\ndrm=%s\nsubs=%s\ndanmakus=%s\ntimeout=%s", this.headers, url, format, drm, this.subs, danmakus, timeout);
         if (danPlayer != null) setDanmaku(this.danmakus = danmakus);
@@ -637,16 +663,39 @@ public class Players implements Player.Listener, ParseCallback {
     }
 
     @Override
+    // 实际播放变化后同步观察状态和音频焦点。
     public void onIsPlayingChanged(boolean isPlaying) {
+        // 状态变化时启动唯一的主线程观察任务。
+        vodWatchdog.changed();
         if (isPlaying() && audioManager != null && audioManager.getMode() == AudioManager.MODE_IN_COMMUNICATION) pause();
         PlayerEvent.playing(tag);
         ActionEvent.update();
     }
 
     @Override
+    // 播放状态改变时更新卡顿观察并通知界面。
     public void onPlaybackStateChanged(int state) {
+        // 状态变化时启动唯一的主线程观察任务。
+        vodWatchdog.changed();
         if (danPlayer != null) danPlayer.check(state);
         PlayerEvent.state(tag, state);
+    }
+
+    // 暂停与恢复时更新观察避免将暂停算作卡顿。
+    @Override
+    public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+        // 状态变化时启动唯一的主线程观察任务。
+        vodWatchdog.changed();
+    }
+
+    // 用户拖动进度后重新统计实际播放卡顿。
+    @Override
+    public void onPositionDiscontinuity(Player.PositionInfo oldPosition, Player.PositionInfo newPosition, int reason) {
+        if (reason != Player.DISCONTINUITY_REASON_SEEK && reason != Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) return;
+        // 停止观察并排除拖动进度及切集引起的缓冲。
+        vodWatchdog.reset();
+        // 状态变化时启动唯一的主线程观察任务。
+        vodWatchdog.changed();
     }
 
     @Override

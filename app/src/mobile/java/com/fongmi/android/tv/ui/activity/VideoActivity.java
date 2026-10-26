@@ -382,7 +382,10 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         mBinding.control.parse.setAdapter(mParseAdapter = new ParseAdapter(this, ViewType.DARK));
     }
 
+    // 初始化点播播放器并启用弱网缓冲。
     private void setVideoView() {
+        // 为点播启用弱网策略并配置当前来源自动恢复。
+        mPlayers.configureVodPlayback(Setting.isChange());
         mPlayers.init(mBinding.exo);
         PlaybackService.start(mPlayers);
         ExoUtil.setSubtitleView(mBinding.exo);
@@ -576,7 +579,10 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         setMetadata();
     }
 
+    // 加载点播线路并遵守来源的自动恢复开关。
     private void setPlayer(Result result) {
+        // 为点播启用弱网策略并配置当前来源自动恢复。
+        mPlayers.configureVodPlayback(Setting.isChange() && getSite().getChangeable() != 2);
         result.getUrl().set(mQualityAdapter.getPosition());
         if (result.hasArtwork()) setArtwork(result.getArtwork());
         if (result.hasPosition()) mHistory.setPosition(result.getPosition());
@@ -1276,9 +1282,11 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
                 hideProgress();
                 checkControl();
                 mPlayers.reset();
+                setInitAuto(false);
+                break;
+            case PlayerEvent.STABLE:
                 // 播放恢复后清空本轮失败与续播状态。
                 mFallback.recovered();
-                setInitAuto(false);
                 // 获取设备内共享的来源状态表。
                 // 成功播放后清除对应失败记录。
                 SourceHealth.get().success("vod:" + getKey());
@@ -1365,8 +1373,8 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         showError(event.getMsg(), error);
         mClock.setCallback(null);
         if (mHistory != null) {
-            // 保存换站前集数与内存播放进度。
-            mFallback.remember(mHistory.getVodRemarks(), Math.max(mHistory.getPosition(), mPlayers.getPosition()), getFlag().getEpisodes().size() == 1);
+            // 保存有效播放进度且忽略新线路未加载时的零值。
+            VideoRecovery.remember(mFallback, mHistory, mPlayers.getPosition(), mPlayers.getDuration(), getFlag().getEpisodes().size() == 1);
         }
         mPlayers.resetTrack();
         mPlayers.reset();

@@ -38,17 +38,24 @@ public class ExoUtil {
         return Util.getUserAgent(App.get(), BuildConfig.APPLICATION_ID);
     }
 
-    public static LoadControl buildLoadControl() {
-        return new DefaultLoadControl.Builder().setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS * Setting.getBuffer(), DefaultLoadControl.DEFAULT_MAX_BUFFER_MS * Setting.getBuffer(), DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS, DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS).build();
+    // 点播增加恢复缓冲且按设备限制缓存内存。
+    public static LoadControl buildLoadControl(boolean vod) {
+        DefaultLoadControl.Builder builder = new DefaultLoadControl.Builder();
+        if (!vod) return builder.setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS * Setting.getBuffer(), DefaultLoadControl.DEFAULT_MAX_BUFFER_MS * Setting.getBuffer(), DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS, DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS).build();
+        // 增加恢复缓冲并限制点播缓存时长与内存。
+        PlaybackBufferPolicy policy = PlaybackBufferPolicy.forDevice(Setting.getBuffer(), App.resourceBudget().constrained || !android.os.Process.is64Bit());
+        return builder.setBufferDurationsMs(policy.minimumMs(), policy.maximumMs(), policy.startupMs(), policy.rebufferMs())
+                .setTargetBufferBytes(policy.targetBytes()).setPrioritizeTimeOverSizeThresholds(false).build();
     }
 
-    public static TrackSelector buildTrackSelector() {
+    // 点播允许自适应码率并保留用户手选轨道。
+    public static TrackSelector buildTrackSelector(boolean vod) {
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(App.get());
         DefaultTrackSelector.Parameters.Builder builder = trackSelector.buildUponParameters();
         if (Setting.isPreferAAC()) builder.setPreferredAudioMimeType(MimeTypes.AUDIO_AAC);
         builder.setPreferredTextLanguage(Locale.getDefault().getISO3Language());
         builder.setTunnelingEnabled(Setting.isTunnel());
-        builder.setForceHighestSupportedBitrate(true);
+        builder.setForceHighestSupportedBitrate(!vod);
         trackSelector.setParameters(builder.build());
         return trackSelector;
     }
