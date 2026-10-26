@@ -88,23 +88,28 @@ public final class DiagnosticLog implements LogAdapter {
     public void log(int priority, String tag, String message) {
         // 过滤业务调试日志仅接收警告和异常。
         if (!isLoggable(priority, tag)) return;
-        // 按异常标记写入脱敏诊断缓冲。
+        // 后台异常待匹配且诊断失败不影响播放。
         record(tag, message, true);
     }
 
     // 记录额外诊断事件且不依赖系统日志权限。
     public static void record(String tag, String message) {
-        // 按异常标记写入脱敏诊断缓冲。
+        // 后台异常待匹配且诊断失败不影响播放。
         record(tag, message, false);
     }
 
-    // 后台异常只短暂待匹配，不写复制日志。
+    // 后台异常待匹配且诊断失败不影响播放。
     public static void record(String tag, String message, boolean error) {
         DiagnosticLog value = instance;
-        // 去除播放日志前缀后识别真实异常内容。
-        if (value == null || !DiagnosticError.containsException(message)) return;
-        // 按异常原文及插件方法匹配即将显示的错误。
-        value.screenErrors.rememberLogged(message);
+        if (value == null) return;
+        try {
+            // 去除播放日志前缀后识别真实异常内容。
+            if (!DiagnosticError.containsException(message)) return;
+            // 兼容旧安卓提取首行并匹配插件异常。
+            value.screenErrors.rememberLogged(message);
+        } catch (RuntimeException | LinkageError failure) {
+            Log.w(TAG, "session=logger diagnostic capture failed", failure);
+        }
     }
 
     // 原始异常仅在对应错误实际显示后写入日志。

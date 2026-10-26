@@ -43,14 +43,16 @@ final class ScreenErrorContext {
         return entry == null ? null : entry.details();
     }
 
-    // 按异常原文及插件方法匹配即将显示的错误。
+    // 兼容旧安卓提取首行并匹配插件异常。
     synchronized void rememberLogged(String details) {
-        String first = details.lines().findFirst().orElse("").trim();
+        int end = 0;
+        while (end < details.length() && details.charAt(end) != '\n' && details.charAt(end) != '\r') end++;
+        String first = details.substring(0, end).trim();
         int separator = first.indexOf(":");
         String reason = separator < 0 ? "" : first.substring(separator + 1).trim();
         // 短暂关联提示和原始堆栈，限制总容量。
         remember(first, details);
-        if (!reason.isBlank()) {
+        if (!reason.isEmpty()) {
             // 短暂关联提示和原始堆栈，限制总容量。
             remember(reason, details);
         }

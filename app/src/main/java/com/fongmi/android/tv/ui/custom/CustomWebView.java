@@ -63,10 +63,12 @@ public class CustomWebView extends WebView implements DialogInterface.OnDismissL
 
     private CustomWebView(@NonNull Context context) {
         super(context);
+        // 初始化解析设置并提供非空视频封面。
         initSettings();
     }
 
     @SuppressLint("SetJavaScriptEnabled")
+    // 初始化解析设置并提供非空视频封面。
     public void initSettings() {
         timer = () -> stop(true);
         urls = new LinkedHashSet<>();
@@ -85,6 +87,8 @@ public class CustomWebView extends WebView implements DialogInterface.OnDismissL
         setting.setJavaScriptCanOpenWindowsAutomatically(false);
         setting.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         setWebViewClient(webViewClient());
+        // 为网页视频提供可复用的非空封面。
+        setWebChromeClient(new VideoWebChromeClient());
     }
 
     public CustomWebView start(String key, String from, Map<String, String> headers, String url, String click, ParseCallback callback, boolean detect) {

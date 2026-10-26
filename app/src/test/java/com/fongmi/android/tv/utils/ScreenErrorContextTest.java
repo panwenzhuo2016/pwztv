@@ -9,6 +9,30 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.Assert.*;
 
 public class ScreenErrorContextTest {
+    // 验证旧安卓首行提取兼容三种换行及单行异常。
+    @Test public void matchesLoggedErrorsWithEverySupportedLineEnding() {
+        for (String ending : new String[]{"\n", "\r\n", "\r"}) {
+            // 注入时钟以限制待显示异常的保留时间。
+            ScreenErrorContext context = new ScreenErrorContext(() -> 10_000_000);
+            String details = "java.lang.IllegalStateException: missing data" + ending
+                    + "\tat com.github.catvod.spider.NewCz.playerContent(NewCz.java:42)";
+            // 兼容旧安卓提取首行并匹配插件异常。
+            context.rememberLogged(details);
+            // 实际显示时取出堆栈，避免后台误记完整日志。
+            assertEquals(details, context.take("NewCz-playContent:missing data"));
+            // 实际显示时取出堆栈，避免后台误记完整日志。
+            assertNull(context.take("missing data"));
+            // 兼容旧安卓提取首行并匹配插件异常。
+            context.rememberLogged("java.lang.IllegalStateException: single line");
+            // 实际显示时取出堆栈，避免后台误记完整日志。
+            assertEquals("java.lang.IllegalStateException: single line", context.take("single line"));
+            // 兼容旧安卓提取首行并匹配插件异常。
+            context.rememberLogged("java.lang.NullPointerException" + ending);
+            // 实际显示时取出堆栈，避免后台误记完整日志。
+            assertEquals("java.lang.NullPointerException" + ending, context.take("java.lang.NullPointerException"));
+        }
+    }
+
     // 验证原始堆栈只在匹配显示时取出一次。
     @Test public void retrievesMatchingStackOnceAndExpiresUnshownErrors() {
         AtomicLong now = new AtomicLong(10_000_000);
