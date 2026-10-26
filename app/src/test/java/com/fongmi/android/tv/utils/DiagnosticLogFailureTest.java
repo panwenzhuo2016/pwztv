@@ -11,6 +11,41 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 public class DiagnosticLogFailureTest {
+    // 验证屏幕诊断失败后下一条完整日志仍可写入。
+    @Test public void screenCaptureFailureDoesNotBreakFollowingDiagnostics() throws Exception {
+        DiagnosticLog adapter = mock(DiagnosticLog.class);
+        ScreenErrorContext context = mock(ScreenErrorContext.class);
+        // 注入时钟便于验证一小时保留边界。
+        RecentLogBuffer buffer = new RecentLogBuffer(() -> 10_000_000);
+        Field current = DiagnosticLog.class.getDeclaredField("instance");
+        Field contents = DiagnosticLog.class.getDeclaredField("buffer");
+        Field pending = DiagnosticLog.class.getDeclaredField("screenErrors");
+        current.setAccessible(true);
+        contents.setAccessible(true);
+        pending.setAccessible(true);
+        Object previous = current.get(null);
+        contents.set(adapter, buffer);
+        pending.set(adapter, context);
+        current.set(null, adapter);
+        doThrow(new NoSuchMethodError("diagnostic API")).when(context).remember(anyString(), anyString());
+        when(context.take("播放失败")).thenThrow(new IllegalStateException("bad context")).thenReturn(null);
+        try (MockedStatic<Log> logs = mockStatic(Log.class)) {
+            // 原始异常仅在对应错误实际显示后写入日志。
+            DiagnosticLog.prepareVisible("播放失败", new IllegalStateException("original"));
+            // 优先记录事件原始异常并兼容插件文字匹配。
+            DiagnosticLog.visible("screen", "播放失败", true, null);
+            // 导出按时间排列的最近一小时诊断文本。
+            assertEquals("", buffer.export());
+            // 优先记录事件原始异常并兼容插件文字匹配。
+            DiagnosticLog.visible("screen", "播放失败", true, null);
+            // 导出按时间排列的最近一小时诊断文本。
+            assertTrue(buffer.export().contains("screen: 播放失败"));
+            verify(context, times(2)).take("播放失败");
+        } finally {
+            current.set(null, previous);
+        }
+    }
+
     // 验证诊断兼容错误或解析异常不阻断播放恢复。
     @Test public void diagnosticFailuresDoNotEscapeOrPersistBackgroundErrors() throws Exception {
         DiagnosticLog adapter = mock(DiagnosticLog.class);

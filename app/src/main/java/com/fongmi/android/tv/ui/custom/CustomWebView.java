@@ -25,8 +25,8 @@ import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.impl.ParseCallback;
 import com.fongmi.android.tv.ui.dialog.WebDialog;
 import com.fongmi.android.tv.utils.Sniffer;
+import com.fongmi.android.tv.utils.FailureGuard;
 import com.github.catvod.crawler.Spider;
-import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Util;
 import com.google.common.net.HttpHeaders;
 
@@ -38,8 +38,6 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 public class CustomWebView extends WebView implements DialogInterface.OnDismissListener {
-
-    private static final String TAG = CustomWebView.class.getSimpleName();
 
     private static final Pattern PLAYER = Pattern.compile("player.*https?://");
     private static final String BLANK = "about:blank";
@@ -86,21 +84,25 @@ public class CustomWebView extends WebView implements DialogInterface.OnDismissL
         setting.setMediaPlaybackRequiresUserGesture(false);
         setting.setJavaScriptCanOpenWindowsAutomatically(false);
         setting.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        // 隔离网页请求及页面回调中的插件异常。
         setWebViewClient(webViewClient());
         // 为网页视频提供可复用的非空封面。
         setWebChromeClient(new VideoWebChromeClient());
     }
 
+    // 加载网页失败时结束嗅探并通知解析回退。
     public CustomWebView start(String key, String from, Map<String, String> headers, String url, String click, ParseCallback callback, boolean detect) {
-        SpiderDebug.log(TAG, "key=%s, from=%s, click=%s, url=%s, headers=%s", key, from, click, url, headers);
-        App.post(timer, Constant.TIMEOUT_PARSE_WEB);
         this.callback = callback;
         this.detect = detect;
         this.click = click;
         this.from = from;
         this.key = key;
         this.url = url;
-        start(headers);
+        // 隔离可恢复异常并返回是否完成当前操作。
+        if (!FailureGuard.run("web.start:" + key, () -> {
+            App.post(timer, Constant.TIMEOUT_PARSE_WEB);
+            start(headers);
+        })) stop(true);
         return this;
     }
 
@@ -117,25 +119,35 @@ public class CustomWebView extends WebView implements DialogInterface.OnDismissL
         }
     }
 
+    // 隔离网页请求及页面回调中的插件异常。
     private WebViewClient webViewClient() {
         return new WebViewClient() {
+            // 异常请求结束本轮解析并返回空响应。
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                String url = request.getUrl().toString();
-                String host = request.getUrl().getHost();
-                if (TextUtils.isEmpty(host) || isAd(host)) return empty;
-                Map<String, String> headers = request.getRequestHeaders();
-                if (url.contains("/cdn-cgi/challenge-platform/")) post(() -> showDialog());
-                if (detect && PLAYER.matcher(url).find() && addUrl(url)) onParseAdd(headers, url);
-                else if (isVideoFormat(url)) onParseSuccess(headers, url);
-                return super.shouldInterceptRequest(view, request);
+                try {
+                    String url = request.getUrl().toString();
+                    String host = request.getUrl().getHost();
+                    if (TextUtils.isEmpty(host) || isAd(host)) return empty;
+                    Map<String, String> headers = request.getRequestHeaders();
+                    if (url.contains("/cdn-cgi/challenge-platform/")) post(() -> showDialog());
+                    if (detect && PLAYER.matcher(url).find() && addUrl(url)) onParseAdd(headers, url);
+                    else if (isVideoFormat(url)) onParseSuccess(headers, url);
+                    return super.shouldInterceptRequest(view, request);
+                } catch (RuntimeException | LinkageError error) {
+                    // 使用系统日志避免再次进入诊断适配器。
+                    FailureGuard.report("web.intercept:" + key, error);
+                    post(() -> stop(true));
+                    return empty;
+                }
             }
 
+            // 页面脚本异常时结束解析并允许切换线路。
             @Override
             public void onPageFinished(WebView view, String url) {
-                super.onPageFinished(view, url);
-                if (url.equals(BLANK)) return;
-                evaluate(getScript(url), 0);
+                if (BLANK.equals(url) || stop) return;
+                // 隔离可恢复异常并返回是否完成当前操作。
+                if (!FailureGuard.run("web.pageFinished:" + key, () -> evaluate(getScript(url), 0))) stop(true);
             }
 
             @Override
@@ -156,11 +168,15 @@ public class CustomWebView extends WebView implements DialogInterface.OnDismissL
         return urls.add(url);
     }
 
+    // 窗口显示失败时结束本轮网页解析。
     private void showDialog() {
         if (dialog != null || App.activity() == null) return;
-        if (getParent() != null) ((ViewGroup) getParent()).removeView(this);
-        dialog = new WebDialog(this).show();
-        App.removeCallbacks(timer);
+        // 隔离可恢复异常并返回是否完成当前操作。
+        if (!FailureGuard.run("web.dialog:" + key, () -> {
+            if (getParent() != null) ((ViewGroup) getParent()).removeView(this);
+            dialog = new WebDialog(this).show();
+            App.removeCallbacks(timer);
+        })) stop(true);
     }
 
     private void hideDialog() {
@@ -180,14 +196,18 @@ public class CustomWebView extends WebView implements DialogInterface.OnDismissL
         return script;
     }
 
+    // 异步脚本异常时通知解析回退而不逃逸回调。
     private void evaluate(List<String> script, int index) {
-        if (index >= script.size()) return;
-        String js = script.get(index);
-        if (TextUtils.isEmpty(js)) {
-            evaluate(script, index + 1);
-        } else {
-            evaluateJavascript(js, value -> evaluate(script, index + 1));
-        }
+        if (stop || index >= script.size()) return;
+        // 隔离可恢复异常并返回是否完成当前操作。
+        if (!FailureGuard.run("web.script:" + key, () -> {
+            String js = script.get(index);
+            if (TextUtils.isEmpty(js)) {
+                evaluate(script, index + 1);
+            } else {
+                evaluateJavascript(js, value -> evaluate(script, index + 1));
+            }
+        })) stop(true);
     }
 
     private boolean isAd(String host) {
@@ -196,39 +216,61 @@ public class CustomWebView extends WebView implements DialogInterface.OnDismissL
         return false;
     }
 
+    // 插件格式识别失败时使用内置格式判断。
     private boolean isVideoFormat(String url) {
         try {
             if (!detect && url.equals(this.url)) return false;
             Spider spider = VodConfig.get().getSite(key).spider();
             if (spider.manualVideoCheck()) return spider.isVideoFormat(url);
             return Sniffer.isVideoFormat(url);
-        } catch (Exception ignored) {
+        } catch (Exception | LinkageError error) {
+            // 使用系统日志避免再次进入诊断适配器。
+            FailureGuard.report("web.videoCheck:" + key, error);
             return Sniffer.isVideoFormat(url);
         }
     }
 
+    // 子页面启动失败时回退当前解析任务。
     private void onParseAdd(Map<String, String> headers, String url) {
-        post(() -> CustomWebView.create(App.get()).start(key, from, headers, url, click, callback, false));
+        post(() -> {
+            if (stop || callback == null) return;
+            // 隔离可恢复异常并返回是否完成当前操作。
+            if (!FailureGuard.run("web.child:" + key, () -> CustomWebView.create(App.get()).start(key, from, headers, url, click, callback, false))) stop(true);
+        });
     }
 
+    // 成功回调异常时通知失败并停止网页嗅探。
     private void onParseSuccess(Map<String, String> headers, String url) {
-        if (callback != null) callback.onParseSuccess(headers, url, from);
+        ParseCallback target = callback;
+        callback = null;
+        // 隔离可恢复异常并返回是否完成当前操作。
+        if (target != null && !FailureGuard.run("web.success:" + key, () -> target.onParseSuccess(headers, url, from))) {
+            // 隔离可恢复异常并返回是否完成当前操作。
+            FailureGuard.run("web.successFallback:" + key, target::onParseError);
+        }
         post(() -> stop(false));
-        callback = null;
     }
 
+    // 失败回调只交付一次并隔离回调异常。
     private void onParseError() {
-        if (callback != null) callback.onParseError();
+        ParseCallback target = callback;
         callback = null;
+        // 隔离可恢复异常并返回是否完成当前操作。
+        if (target != null) FailureGuard.run("web.error:" + key, target::onParseError);
     }
 
+    // 分步清理网页且清理失败仍通知解析回退。
     public void stop(boolean error) {
         if (stop) return;
         stop = true;
-        hideDialog();
-        stopLoading();
-        loadUrl(BLANK);
-        App.removeCallbacks(timer);
+        // 隔离可恢复异常并返回是否完成当前操作。
+        FailureGuard.run("web.hideDialog:" + key, this::hideDialog);
+        // 隔离可恢复异常并返回是否完成当前操作。
+        FailureGuard.run("web.stopLoading:" + key, this::stopLoading);
+        // 隔离可恢复异常并返回是否完成当前操作。
+        FailureGuard.run("web.clearPage:" + key, () -> loadUrl(BLANK));
+        // 隔离可恢复异常并返回是否完成当前操作。
+        FailureGuard.run("web.cancelTimer:" + key, () -> App.removeCallbacks(timer));
         if (error) onParseError();
         else callback = null;
     }

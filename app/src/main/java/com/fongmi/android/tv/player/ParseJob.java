@@ -12,6 +12,7 @@ import com.fongmi.android.tv.impl.ParseCallback;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.ui.custom.CustomWebView;
 import com.fongmi.android.tv.utils.UrlUtil;
+import com.fongmi.android.tv.utils.FailureGuard;
 import com.fongmi.android.tv.utils.WebViewUtil;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.crawler.SpiderDebug;
@@ -52,10 +53,14 @@ public class ParseJob implements ParseCallback {
         this.callback = callback;
     }
 
+    // 配置或提交解析失败时交付失败并释放资源。
     public ParseJob start(Result result, boolean useParse) {
-        setParse(result, useParse);
-        // 执行解析并记录超时与取消异常。
-        execute(result);
+        // 隔离可恢复异常并返回是否完成当前操作。
+        if (!FailureGuard.run("parse.start", () -> {
+            setParse(result, useParse);
+            // 执行解析并记录超时与取消异常。
+            execute(result);
+        })) onParseError();
         return this;
     }
 
@@ -162,9 +167,9 @@ public class ParseJob implements ParseCallback {
     private void jsonParse(CountDownLatch latch, Parse item, String webUrl) {
         try {
             jsonParse(item, webUrl, false);
-        } catch (Exception e) {
-            // 将异常堆栈同时交给本机诊断适配器。
-            SpiderDebug.log(e);
+        } catch (Exception | LinkageError e) {
+            // 使用系统日志避免再次进入诊断适配器。
+            FailureGuard.report("parse.parallel:" + item.getName(), e);
         } finally {
             latch.countDown();
         }
@@ -199,9 +204,18 @@ public class ParseJob implements ParseCallback {
         startWeb("", "", headers, url, "");
     }
 
+    // 网页解析启动失败时回退到解析失败流程。
     private void startWeb(String key, String from, Map<String, String> headers, String url, String click) {
         if (WebViewUtil.support()) {
-            App.post(() -> webViews.add(CustomWebView.create(App.get()).start(key, from, headers, url, click, this, !url.contains("player/?url="))));
+            App.post(() -> {
+                if (callback == null) return;
+                // 隔离可恢复异常并返回是否完成当前操作。
+                if (!FailureGuard.run("parse.webStart:" + key, () -> {
+                    CustomWebView view = CustomWebView.create(App.get());
+                    webViews.add(view);
+                    view.start(key, from, headers, url, click, this, !url.contains("player/?url="));
+                })) onParseError();
+            });
         } else {
             onParseError();
         }
@@ -215,33 +229,62 @@ public class ParseJob implements ParseCallback {
     }
 
     @Override
+    // 成功回调异常时仍通知失败并释放解析资源。
     public void onParseSuccess(Map<String, String> headers, String url, String from) {
         App.post(() -> {
-            if (callback != null) callback.onParseSuccess(headers, url, from);
-            stop();
+            ParseCallback target = callback;
+            callback = null;
+            try {
+                // 隔离可恢复异常并返回是否完成当前操作。
+                if (target != null && !FailureGuard.run("parse.success", () -> target.onParseSuccess(headers, url, from))) {
+                    // 隔离可恢复异常并返回是否完成当前操作。
+                    FailureGuard.run("parse.successFallback", target::onParseError);
+                }
+            } finally {
+                // 终止解析任务并逐个释放网页资源。
+                stop();
+            }
         });
     }
 
     @Override
+    // 失败回调异常时仍释放本轮解析资源。
     public void onParseError() {
         App.post(() -> {
-            if (callback != null) callback.onParseError();
-            stop();
+            ParseCallback target = callback;
+            callback = null;
+            try {
+                // 隔离可恢复异常并返回是否完成当前操作。
+                if (target != null) FailureGuard.run("parse.error", target::onParseError);
+            } finally {
+                // 终止解析任务并逐个释放网页资源。
+                stop();
+            }
         });
     }
 
+    // 单个网页释放失败不阻断其余网页清理。
     private void stopWeb() {
-        for (CustomWebView webView : webViews) webView.stop(false);
-        for (CustomWebView webView : webViews) webView.destroy();
-        if (!webViews.isEmpty()) webViews.clear();
+        List<CustomWebView> pending = new ArrayList<>(webViews);
+        webViews.clear();
+        for (CustomWebView webView : pending) {
+            // 隔离可恢复异常并返回是否完成当前操作。
+            FailureGuard.run("parse.webStop", () -> webView.stop(false));
+            // 隔离可恢复异常并返回是否完成当前操作。
+            FailureGuard.run("parse.webDestroy", webView::destroy);
+        }
     }
 
+    // 终止解析任务并逐个释放网页资源。
     public void stop() {
-        if (executor != null) executor.shutdownNow();
-        if (infinite != null) infinite.shutdownNow();
+        // 隔离可恢复异常并返回是否完成当前操作。
+        if (executor != null) FailureGuard.run("parse.executorStop", executor::shutdownNow);
+        // 隔离可恢复异常并返回是否完成当前操作。
+        if (infinite != null) FailureGuard.run("parse.infiniteStop", infinite::shutdownNow);
         infinite = null;
         executor = null;
         callback = null;
+        // 单个网页释放失败不阻断其余网页清理。
         stopWeb();
     }
 }

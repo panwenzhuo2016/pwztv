@@ -57,7 +57,8 @@ public class Notify {
     // 记录提示文字并显示原有用户提示。
     public static void show(String text) {
         if (TextUtils.isEmpty(text)) return;
-        get().makeText(text);
+        // 隔离可恢复异常并返回是否完成当前操作。
+        FailureGuard.run("notice.show", () -> get().makeText(text));
         // 实际显示异常时保留原始信息和显示调用链。
         DiagnosticLog.visible("notice", text, false);
     }

@@ -56,6 +56,7 @@ import com.fongmi.android.tv.player.exo.ExoUtil;
 import com.fongmi.android.tv.player.exo.TrackUtil;
 import com.fongmi.android.tv.server.Server;
 import com.fongmi.android.tv.utils.FileUtil;
+import com.fongmi.android.tv.utils.FailureGuard;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
@@ -665,7 +666,17 @@ public class Players implements Player.Listener, ParseCallback {
     // 恢复播放或传递屏幕提示及其原始异常。
     @Override
     public void onPlayerError(@NonNull PlaybackException e) {
-        Logger.t(TAG).e(e, "tag=%s,key=%s,code=%s", tag, getKey(), e.errorCode);
+        // 隔离可恢复异常并返回是否完成当前操作。
+        FailureGuard.run("player.log:" + tag, () -> Logger.t(TAG).e(e, "tag=%s,key=%s,code=%s", tag, getKey(), e.errorCode));
+        // 恢复播放失败时交由界面切换线路。
+        if (!FailureGuard.run("player.recover:" + tag, () -> recoverPlayback(e))) {
+            // 隔离可恢复异常并返回是否完成当前操作。
+            FailureGuard.run("player.fallback:" + tag, () -> ErrorEvent.extract(tag, e.getMessage(), e));
+        }
+    }
+
+    // 恢复播放失败时交由界面切换线路。
+    private void recoverPlayback(PlaybackException e) {
         // 传递屏幕提示及其原始异常。
         if (++retry > 2) ErrorEvent.extract(tag, provider.get(e), e);
         else switch (e.errorCode) {

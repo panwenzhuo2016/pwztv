@@ -23,7 +23,8 @@ final class ToastDiagnostics {
         Boolean previous = ownToast.get();
         ownToast.set(true);
         try {
-            toast.show();
+            // 隔离可恢复异常并返回是否完成当前操作。
+            FailureGuard.run("toast.show", toast::show);
         } finally {
             if (previous == null) ownToast.remove();
             else ownToast.set(previous);
@@ -72,7 +73,7 @@ final class ToastDiagnostics {
                 String text = text(method, args);
                 if (text == null) partial = true;
                 if (text != null && !text.isBlank()) observer.accept(text);
-            } catch (ReflectiveOperationException | RuntimeException error) {
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError error) {
                 partial = true;
                 Log.w(TAG, "Toast text observation failed", error);
             }

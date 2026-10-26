@@ -16,6 +16,19 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 public class ToastDiagnosticsTest {
+    // 验证观察器兼容错误不破坏系统提示返回值。
+    @Test public void observerLinkageErrorDoesNotEscape() throws Throwable {
+        NotificationService service = mock(NotificationService.class);
+        when(service.enqueueTextToast(anyString(), any())).thenReturn(true);
+        try (MockedStatic<Log> logs = mockStatic(Log.class)) {
+            // 保留系统调用结果并在提交提示后观察文本。
+            InvocationHandler handler = ToastDiagnostics.forwarding(service, text -> { throw new NoSuchMethodError("observer API"); });
+            assertEquals(true, handler.invoke(null,
+                    NotificationService.class.getMethod("enqueueTextToast", String.class, CharSequence.class), new Object[]{"app", "failed"}));
+            verify(service).enqueueTextToast("app", "failed");
+        }
+    }
+
     // 验证应用自有提示不重复记录且结束后继续观察。
     @Test public void ownToastsDoNotDuplicateAndObservationResumesAfterward() throws Throwable {
         NotificationService service = mock(NotificationService.class);

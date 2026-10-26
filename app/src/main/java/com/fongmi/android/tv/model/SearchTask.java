@@ -5,6 +5,7 @@ import androidx.collection.ArrayMap;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
+import com.fongmi.android.tv.utils.FailureGuard;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Trans;
 
@@ -42,9 +43,10 @@ public class SearchTask implements Callable<Result> {
                 if (Thread.currentThread().isInterrupted()) return;
                 // 仅在当前搜索轮次发布异步返回结果。
                 model.publishSearch(generation, result);
-            } catch (Exception error) {
+            } catch (Exception | LinkageError error) {
                 if (error instanceof InterruptedException) Thread.currentThread().interrupt();
-                SpiderDebug.log("search", "site=%s failed=%s", site.getKey(), error.getClass().getSimpleName());
+                // 使用系统日志避免再次进入诊断适配器。
+                FailureGuard.report("search:" + site.getKey(), error);
             }
         };
     }

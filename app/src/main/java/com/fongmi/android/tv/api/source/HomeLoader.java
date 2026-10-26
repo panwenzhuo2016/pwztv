@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.api.source;
 
+import com.fongmi.android.tv.utils.FailureGuard;
+
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -51,9 +53,10 @@ public final class HomeLoader<S, R> {
                               BooleanSupplier current, BiConsumer<S, String> failed) throws InterruptedException {
         for (S source : sources) {
             if (!current.getAsBoolean()) throw new CancellationException("Home request replaced");
-            Request<R> request = requests.apply(source);
+            Request<R> request = null;
             Future<R> task = null;
             try {
+                request = requests.apply(source);
                 task = submit.apply(request);
                 R value = task.get(timeoutMillis, TimeUnit.MILLISECONDS);
                 if (!current.getAsBoolean()) throw new CancellationException("Home request replaced");
@@ -65,12 +68,24 @@ public final class HomeLoader<S, R> {
             } catch (ExecutionException e) {
                 if (!current.getAsBoolean()) throw new CancellationException("Home request replaced");
                 failed.accept(source, e.getCause().getClass().getSimpleName());
+            } catch (RuntimeException | LinkageError e) {
+                if (!current.getAsBoolean()) throw new CancellationException("Home request replaced");
+                failed.accept(source, e.getClass().getSimpleName());
             } finally {
                 // 取消当前来源的网络请求。
-                request.cancel();
-                if (task != null && !task.isDone()) task.cancel(true);
+                cancel(request, task);
             }
         }
         return null;
+    }
+
+    // 取消当前来源的网络请求。
+    private void cancel(Request<R> request, Future<R> task) {
+        // 隔离可恢复异常并返回是否完成当前操作。
+        if (request != null) FailureGuard.run("home.cancelRequest", request::cancel);
+        // 隔离可恢复异常并返回是否完成当前操作。
+        if (task != null) FailureGuard.run("home.cancelTask", () -> {
+            if (!task.isDone()) task.cancel(true);
+        });
     }
 }

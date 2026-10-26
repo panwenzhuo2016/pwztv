@@ -7,8 +7,8 @@ import com.fongmi.android.tv.api.config.LiveConfig;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Live;
 import com.fongmi.android.tv.bean.Site;
+import com.fongmi.android.tv.utils.FailureGuard;
 import com.github.catvod.crawler.Spider;
-import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.crawler.SpiderNull;
 import com.github.catvod.utils.Util;
 
@@ -56,14 +56,21 @@ public class BaseLoader {
 
     // 按脚本类型分派到对应片源加载器。
     public Spider getSpider(String key, String api, String ext, String jar) {
-        boolean js = api.contains(".js");
-        boolean py = api.contains(".py");
-        boolean csp = api.startsWith("csp_");
-        // 获取Python片源或返回不可用结果。
-        if (py) return pyLoader.getSpider(key, api, ext);
-        else if (js) return jsLoader.getSpider(key, api, ext, jar);
-        else if (csp) return jarLoader.getSpider(key, api, ext, jar);
-        else return new SpiderNull();
+        if (api == null) return new SpiderNull();
+        try {
+            boolean js = api.contains(".js");
+            boolean py = api.contains(".py");
+            boolean csp = api.startsWith("csp_");
+            // 获取Python片源或返回不可用结果。
+            if (py) return pyLoader.getSpider(key, api, ext);
+            else if (js) return jsLoader.getSpider(key, api, ext, jar);
+            else if (csp) return jarLoader.getSpider(key, api, ext, jar);
+            else return new SpiderNull();
+        } catch (RuntimeException | LinkageError error) {
+            // 使用系统日志避免再次进入诊断适配器。
+            FailureGuard.report("plugin.load:" + key, error);
+            return new SpiderNull();
+        }
     }
 
     public Spider getSpider(String key) {
@@ -118,8 +125,9 @@ public class BaseLoader {
         App.execute(() -> {
             try {
                 jarLoader.parseJar(key, jar);
-            } catch (RuntimeException error) {
-                SpiderDebug.log("config", "source=%s optional plugin preload failed: %s", key, error.getClass().getSimpleName());
+            } catch (RuntimeException | LinkageError error) {
+                // 使用系统日志避免再次进入诊断适配器。
+                FailureGuard.report("plugin.preload:" + key, error);
             }
         });
     }

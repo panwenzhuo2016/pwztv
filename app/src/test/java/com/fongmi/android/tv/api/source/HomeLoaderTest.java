@@ -3,6 +3,8 @@ package com.fongmi.android.tv.api.source;
 import com.fongmi.android.tv.Constant;
 
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,8 +17,52 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
 public class HomeLoaderTest {
+    // 验证建请求及校验失败后仍换源并清理旧任务。
+    @Test public void requestAndValidationFailuresDoNotStopFallback() throws Exception {
+        List<String> failed = new ArrayList<>();
+        Request invalid = new Request(() -> "invalid");
+        Request good = new Request(() -> "videos");
+        // 配置单源首页总耗时上限和内容校验。
+        HomeLoader<String, String> loader = new HomeLoader<>(Constant.TIMEOUT_HOME, this::completed, value -> {
+            if (value.equals("invalid")) throw new NoSuchMethodError("validator API");
+            return true;
+        });
+        // 超时或空内容即换源并取消上一来源请求。
+        var loaded = loader.load(List.of("broken", "invalid", "good"), key -> {
+            if (key.equals("broken")) throw new IllegalArgumentException("source config");
+            return key.equals("invalid") ? invalid : good;
+        }, () -> true, (key, reason) -> failed.add(key));
+        assertEquals(List.of("broken", "invalid"), failed);
+        assertEquals("good", loaded.source());
+        assertEquals("videos", loaded.value());
+        assertTrue(invalid.canceled);
+        assertTrue(good.canceled);
+    }
+
+    // 验证网络清理抛错后仍取消任务并加载下一源。
+    @Test public void brokenCancellationStillCancelsFutureAndLoadsNextSource() throws Exception {
+        HomeLoader.Request<String> request = mock(HomeLoader.Request.class);
+        doThrow(new IllegalStateException("cancel transport")).when(request).cancel();
+        Future<String> timeout = mock(Future.class);
+        when(timeout.get(anyLong(), any())).thenThrow(new TimeoutException());
+        Request good = new Request(() -> "videos");
+        try (MockedStatic<Log> logs = mockStatic(Log.class)) {
+            // 配置单源首页总耗时上限和内容校验。
+            HomeLoader<String, String> loader = new HomeLoader<>(Constant.TIMEOUT_HOME,
+                    task -> task == request ? timeout : completed(task), value -> true);
+            // 超时或空内容即换源并取消上一来源请求。
+            var loaded = loader.load(List.of("broken", "good"), key -> key.equals("broken") ? request : good,
+                    () -> true, (key, reason) -> assertEquals("broken", key));
+            verify(request).cancel();
+            verify(timeout).cancel(true);
+            assertEquals("videos", loaded.value());
+            assertTrue(good.canceled);
+        }
+    }
+
     private static class Request implements HomeLoader.Request<String> {
         final Callable<String> content;
         boolean canceled;
