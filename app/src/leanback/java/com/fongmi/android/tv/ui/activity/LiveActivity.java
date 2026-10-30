@@ -50,6 +50,7 @@ import com.fongmi.android.tv.impl.LiveCallback;
 import com.fongmi.android.tv.impl.PassCallback;
 import com.fongmi.android.tv.model.LiveViewModel;
 import com.fongmi.android.tv.player.Players;
+import com.fongmi.android.tv.player.PlaybackRetry;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.player.exo.ExoUtil;
 import com.fongmi.android.tv.service.PlaybackService;
@@ -91,6 +92,8 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
     private LiveViewModel mViewModel;
     private List<Group> mHides;
     private Players mPlayers;
+    private final PlaybackRetry mRetry = new PlaybackRetry();
+    private EpgData mRetryEpg;
     private Channel mChannel;
     private final java.util.Set<String> mFailedLines = new java.util.HashSet<>();
     private View mOldView;
@@ -378,6 +381,10 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
         LiveLineDialog.show(this, channel, index -> {
             if (mChannel != channel) return;
             if (index >= 0) channel.setLine(index);
+            // 成功播放或切换目标后清除旧重试。
+            mRetry.cancel();
+            // 用户继续播放时恢复等待中的重试。
+            mRetry.resume();
             mFailedLines.clear();
             // 播放前避开用户标记并处理线路耗尽。
             fetch();
@@ -497,8 +504,13 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
         showError(text, null);
     }
 
-    // 显示当前错误并记录其原始异常。
+    // 隐藏可自动恢复的提示并保留其他屏幕错误。
     private void showError(String text, Throwable error) {
+        if (getString(R.string.error_play_timeout).equals(text) || getString(R.string.source_exhausted).equals(text)) {
+            // 延迟重试当前频道并保留回看目标。
+            scheduleRetry();
+            return;
+        }
         mBinding.widget.error.setVisibility(View.VISIBLE);
         mBinding.widget.text.setText(text);
         // 优先记录事件原始异常并兼容插件文字匹配。
@@ -612,7 +624,12 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
     }
 
     @Override
+    // 主动选择回看时恢复播放并取消旧重试。
     public void onItemClick(EpgData item) {
+        // 成功播放或切换目标后清除旧重试。
+        mRetry.cancel();
+        // 用户继续播放时恢复等待中的重试。
+        mRetry.resume();
         if (item.isSelected()) {
             // 回看播放前避开内容不符的地址。
             fetch(item);
@@ -640,7 +657,15 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
         Keep.delete(item.getName());
     }
 
+    // 切换频道时清除旧重试并恢复播放意图。
     private void setChannel(Channel item) {
+        // 成功播放或切换目标后清除旧重试。
+        mRetry.cancel();
+        // 用户继续播放时恢复等待中的重试。
+        mRetry.resume();
+        // 取消线路解析并使已排队的播放结果失效。
+        mViewModel.cancelUrl();
+        mRetryEpg = null;
         App.post(mR0, 100);
         mFailedLines.clear();
         mChannel = item;
@@ -689,6 +714,9 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
 
     // 回看播放前避开内容不符的地址。
     private void fetch(EpgData item) {
+        // 成功播放或切换目标后清除旧重试。
+        mRetry.cancel();
+        mRetryEpg = item;
         if (mChannel == null) return;
         // 确保当前线路未被标记且保留恢复入口。
         if (!prepareLine()) return;
@@ -700,6 +728,9 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
 
     // 播放前避开用户标记并处理线路耗尽。
     private void fetch() {
+        // 成功播放或切换目标后清除旧重试。
+        mRetry.cancel();
+        mRetryEpg = null;
         if (mChannel == null) return;
         // 确保当前线路未被标记且保留恢复入口。
         if (!prepareLine()) return;
@@ -712,6 +743,12 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
 
     // 播放未屏蔽线路并同步直播自动恢复设置。
     private void start(Result result) {
+        // 判断是否允许自动恢复当前播放。
+        if (!mRetry.active()) {
+            // 延迟重试当前频道并保留回看目标。
+            scheduleRetry();
+            return;
+        }
         // 获取设备共享的直播线路标记。
         LiveLineStore store = LiveLineStore.get();
         // 查询地址是否被用户标记为内容不符。
@@ -867,6 +904,8 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
                 showProgress();
                 break;
             case Player.STATE_READY:
+                // 成功播放或切换目标后清除旧重试。
+                mRetry.cancel();
                 hideProgress();
                 mPlayers.reset();
                 break;
@@ -917,18 +956,33 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
         Track.delete(mPlayers.getUrl());
         // 获取当前事件携带的原始异常。
         Throwable error = event.getError();
-        // 显示当前错误并记录其原始异常。
-        showError(event.getMsg(), error);
+        boolean timeout = event.getType() == ErrorEvent.Type.TIMEOUT || getString(R.string.error_play_timeout).equals(event.getMsg());
+        if (timeout) showProgress();
+        // 隐藏可自动恢复的提示并保留其他屏幕错误。
+        else showError(event.getMsg(), error);
         mPlayers.resetTrack();
         mPlayers.reset();
         mPlayers.stop();
-        // 失败后有限尝试同台的其他健康线路。
-        startFlow();
+        // 超时等待后恢复，暂停时保留恢复入口。
+        if (timeout || !mRetry.active()) mRetry.schedule(this::startFlow);
+        // 失败后切换线路，耗尽后延迟重开一轮。
+        else startFlow();
     }
 
-    // 失败后有限尝试同台的其他健康线路。
+    // 失败后切换线路，耗尽后延迟重开一轮。
     private void startFlow() {
-        if (!Setting.isChange() || mChannel == null) return;
+        if (mChannel == null) return;
+        // 判断是否允许自动恢复当前播放。
+        if (!mRetry.active()) {
+            // 延迟启动下一轮且始终只保留一个重试任务。
+            mRetry.schedule(this::startFlow);
+            return;
+        }
+        if (!Setting.isChange()) {
+            // 延迟重试当前频道并保留回看目标。
+            scheduleRetry();
+            return;
+        }
         // 获取设备内共享的来源状态表。
         SourceHealth health = SourceHealth.get();
         // 记录失败并淘汰最早的状态。
@@ -937,19 +991,39 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
         // 获取设备共享的直播线路标记。
         LiveLineStore store = LiveLineStore.get();
         // 有限选择未被标记且符合条件的备用线路。
-        int next = store.next(mChannel.getUrls(), mChannel.getLine(), url -> {
-            // 冷却结束后允许重新尝试来源。
-            return !mFailedLines.contains(url) && health.available(url);
-        });
+        int next = store.next(mChannel.getUrls(), mChannel.getLine(), url -> !mFailedLines.contains(url));
         if (next < 0) {
-            // 显示播放器异常并记录屏幕错误详情。
-            showError(getString(R.string.source_exhausted));
+            // 延迟重试当前频道并保留回看目标。
+            scheduleRetry();
             return;
         }
         mChannel.setLine(next);
         showInfo();
+        // 继续播放当前直播或回看目标。
+        fetchCurrent();
+    }
+
+    // 延迟重试当前频道并保留回看目标。
+    private void scheduleRetry() {
+        showProgress();
+        // 延迟启动下一轮且始终只保留一个重试任务。
+        mRetry.schedule(this::retryPlayback);
+    }
+
+    // 清除本轮失败记录后重新探测未屏蔽线路。
+    private void retryPlayback() {
+        if (mChannel == null) return;
+        mFailedLines.clear();
+        // 继续播放当前直播或回看目标。
+        fetchCurrent();
+    }
+
+    // 继续播放当前直播或回看目标。
+    private void fetchCurrent() {
+        // 回看播放前避开内容不符的地址。
+        if (mRetryEpg != null) fetch(mRetryEpg);
         // 播放前避开用户标记并处理线路耗尽。
-        fetch();
+        else fetch();
     }
 
     private void prevChannel() {
@@ -1012,6 +1086,10 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
         int previous = store.previous(mChannel.getUrls(), mChannel.getLine(), url -> true);
         if (previous < 0) return;
         mChannel.setLine(previous);
+        // 成功播放或切换目标后清除旧重试。
+        mRetry.cancel();
+        // 用户继续播放时恢复等待中的重试。
+        mRetry.resume();
         mFailedLines.clear();
         showInfo();
         // 播放前避开用户标记并处理线路耗尽。
@@ -1027,6 +1105,10 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
         int next = store.next(mChannel.getUrls(), mChannel.getLine(), url -> true);
         if (next < 0) return;
         mChannel.setLine(next);
+        // 成功播放或切换目标后清除旧重试。
+        mRetry.cancel();
+        // 用户继续播放时恢复等待中的重试。
+        mRetry.resume();
         mFailedLines.clear();
         if (show) showInfo();
         else setInfo();
@@ -1041,11 +1123,17 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
         hideCenter();
     }
 
+    // 用户暂停时停止自动请求并保留继续播放入口。
     private void onPaused() {
+        // 用户暂停时保留恢复入口但不发起请求。
+        mRetry.pause();
         mPlayers.pause();
     }
 
+    // 继续播放时优先恢复等待中的自动重试。
     private void onPlay() {
+        // 用户继续播放时恢复等待中的重试。
+        if (mRetry.resume()) return;
         mPlayers.play();
     }
 
@@ -1157,21 +1245,29 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
     }
 
     @Override
+    // 回到前台后恢复未被用户暂停的重试。
     protected void onResume() {
         super.onResume();
+        // 页面离开时停止请求且不覆盖用户暂停状态。
+        mRetry.foreground(true);
         setRedirect(false);
     }
 
     @Override
+    // 离开前台时取消排队重试避免后台反复请求。
     protected void onPause() {
         super.onPause();
+        // 页面离开时停止请求且不覆盖用户暂停状态。
+        mRetry.foreground(false);
         if (isRedirect()) mPlayers.stop();
     }
 
     @Override
+    // 后台暂停媒体且不覆盖用户原有播放意图。
     protected void onStop() {
         super.onStop();
-        if (Setting.isBackgroundOff()) onPaused();
+        // 后台暂停播放器但保留用户原有播放意图。
+        if (Setting.isBackgroundOff()) mPlayers.pause();
         if (Setting.isBackgroundOff()) mClock.stop();
     }
 
@@ -1189,7 +1285,10 @@ public class LiveActivity extends BaseActivity implements GroupPresenter.OnClick
     }
 
     @Override
+    // 页面销毁后拒绝迟到的自动重试。
     protected void onDestroy() {
+        // 页面销毁后拒绝任何迟到的重试请求。
+        mRetry.close();
         mPlayers.release();
         Source.get().exit();
         PlaybackService.stop();

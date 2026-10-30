@@ -59,6 +59,7 @@ import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.impl.CustomTarget;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.player.Players;
+import com.fongmi.android.tv.player.PlaybackRetry;
 import com.fongmi.android.tv.player.exo.ExoUtil;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.ui.adapter.QualityAdapter;
@@ -125,6 +126,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     private VideoFallback mFallback;
     private History mHistory;
     private Players mPlayers;
+    private final PlaybackRetry mRetry = new PlaybackRetry();
     private boolean fullscreen;
     private boolean initAuto;
     private boolean autoMode;
@@ -414,11 +416,19 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         else getDetail();
     }
 
+    // 加载新目标前取消排队的旧播放重试。
     private void getDetail() {
+        // 成功播放或切换目标后清除旧重试。
+        mRetry.cancel();
         mViewModel.detailContent(getKey(), getId());
     }
 
+    // 切换影片时取消旧重试并恢复播放意图。
     private void getDetail(Vod item) {
+        // 成功播放或切换目标后清除旧重试。
+        mRetry.cancel();
+        // 用户继续播放时恢复等待中的重试。
+        mRetry.resume();
         getIntent().putExtra("key", item.getSiteKey());
         getIntent().putExtra("pic", item.getPic());
         getIntent().putExtra("id", item.getId());
@@ -430,7 +440,20 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         getDetail();
     }
 
+    // 恢复中的详情失败继续重试且保留原集数。
     private void setDetail(Result result) {
+        // 暂停或离开前台后不让迟到详情重新启动播放。
+        if (!mRetry.active()) {
+            // 延迟重试当前目标并重新开始下一轮尝试。
+            scheduleRetry();
+            return;
+        }
+        // 判断是否存在待续播的集数。
+        if (result.getList().isEmpty() && mFallback.hasResume()) {
+            // 延迟重试当前目标并重新开始下一轮尝试。
+            scheduleRetry();
+            return;
+        }
         if (result.getList().isEmpty()) setEmpty(result.hasMsg());
         else setDetail(result.getVod());
         Notify.show(result.getMsg());
@@ -535,7 +558,10 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         };
     }
 
+    // 请求当前集播放地址前取消旧目标的重试。
     private void getPlayer(Flag flag, Episode episode) {
+        // 成功播放或切换目标后清除旧重试。
+        mRetry.cancel();
         mBinding.widget.title.setText(getString(R.string.detail_title, mBinding.name.getText(), episode.getName()));
         mViewModel.playerContent(getKey(), flag.getFlag(), episode.getUrl());
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -548,6 +574,12 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
 
     // 加载点播线路并遵守来源的自动恢复开关。
     private void setPlayer(Result result) {
+        // 判断是否允许自动恢复当前播放。
+        if (!mRetry.active()) {
+            // 延迟重试当前目标并重新开始下一轮尝试。
+            scheduleRetry();
+            return;
+        }
         // 为点播启用弱网策略并配置当前来源自动恢复。
         mPlayers.configureVodPlayback(Setting.isChange() && getSite().getChangeable() != 2);
         result.getUrl().set(mQualityAdapter.getPosition());
@@ -815,7 +847,12 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         else mPlayers.setMediaItem();
     }
 
+    // 刷新播放目标时取消旧重试并恢复播放意图。
     private void onRefresh() {
+        // 成功播放或切换目标后清除旧重试。
+        mRetry.cancel();
+        // 用户继续播放时恢复等待中的重试。
+        mRetry.resume();
         saveHistory();
         mPlayers.stop();
         mPlayers.clear();
@@ -922,8 +959,13 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         showError(text, null);
     }
 
-    // 显示当前错误并记录其原始异常。
+    // 隐藏可自动恢复的提示并保留其他屏幕错误。
     private void showError(String text, Throwable error) {
+        if (getString(R.string.error_play_timeout).equals(text) || getString(R.string.source_exhausted).equals(text)) {
+            // 延迟重试当前目标并重新开始下一轮尝试。
+            scheduleRetry();
+            return;
+        }
         mBinding.widget.error.setVisibility(View.VISIBLE);
         mBinding.widget.text.setText(text);
         // 优先记录事件原始异常并兼容插件文字匹配。
@@ -1164,6 +1206,8 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
                 showProgress();
                 break;
             case Player.STATE_READY:
+                // 成功播放或切换目标后清除旧重试。
+                mRetry.cancel();
                 hideProgress();
                 mPlayers.reset();
                 setInitAuto(false);
@@ -1223,8 +1267,10 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         Track.delete(mPlayers.getUrl());
         // 获取当前事件携带的原始异常。
         Throwable error = event.getError();
-        // 显示当前错误并记录其原始异常。
-        showError(event.getMsg(), error);
+        boolean timeout = event.getType() == ErrorEvent.Type.TIMEOUT || getString(R.string.error_play_timeout).equals(event.getMsg());
+        if (timeout) showProgress();
+        // 隐藏可自动恢复的提示并保留其他屏幕错误。
+        else showError(event.getMsg(), error);
         mClock.setCallback(null);
         if (mHistory != null) {
             // 保存有效播放进度且忽略新线路未加载时的零值。
@@ -1233,13 +1279,27 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         mPlayers.resetTrack();
         mPlayers.reset();
         mPlayers.stop();
+        // 判断是否允许自动恢复当前播放。
+        if (timeout || !mRetry.active()) {
+            // 延迟启动下一轮且始终只保留一个重试任务。
+            mRetry.schedule(this::startFlow);
         // 按用户设置切换解析线路或跨站找片。
-        startFlow();
+        } else startFlow();
     }
 
     // 按用户设置切换解析线路或跨站找片。
     private void startFlow() {
-        if (!Setting.isChange() || getSite().getChangeable() == 2) return;
+        // 判断是否允许自动恢复当前播放。
+        if (!mRetry.active()) {
+            // 延迟启动下一轮且始终只保留一个重试任务。
+            mRetry.schedule(this::startFlow);
+            return;
+        }
+        if (!Setting.isChange() || getSite().getChangeable() == 2) {
+            // 延迟重试当前目标并重新开始下一轮尝试。
+            scheduleRetry();
+            return;
+        }
         if (!getSite().isChangeable()) {
             // 有限换站且每轮只启动一次自动搜索。
             checkSearch(false);
@@ -1247,6 +1307,29 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         }
         if (isUseParse()) checkParse();
         else checkFlag();
+    }
+
+    // 延迟重试当前目标并重新开始下一轮尝试。
+    private void scheduleRetry() {
+        showProgress();
+        // 延迟启动下一轮且始终只保留一个重试任务。
+        mRetry.schedule(this::retryPlayback);
+    }
+
+    // 重开换源轮次但不清除影片集数及续播进度。
+    private void retryPlayback() {
+        // 取消旧搜索并使其迟到结果失效。
+        mViewModel.stopSearch();
+        // 新一轮允许重试且保留影片身份集数及进度。
+        mFallback.retryRound();
+        mQuickAdapter.clear();
+        setInitAuto(false);
+        // 判断是否存在待续播的集数。
+        setAutoMode(mFallback.hasResume());
+        initParse();
+        showProgress();
+        // 加载新目标前取消排队的旧播放重试。
+        getDetail();
     }
 
     private void checkParse() {
@@ -1288,6 +1371,10 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
                 showError(getString(R.string.source_exhausted));
             }
         } else if (isAutoMode() || force) nextSite();
+        else {
+            // 延迟重试当前目标并重新开始下一轮尝试。
+            scheduleRetry();
+        }
     }
 
     // 初始化搜索并固定本轮目标片名。
@@ -1297,6 +1384,10 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         setAutoMode(auto);
         setInitAuto(auto);
         startSearch(keyword);
+        if (auto) {
+            // 按指定等待时间保留唯一的下一轮任务。
+            mRetry.schedule(this::retryPlayback, Constant.TIMEOUT_VOD);
+        }
         mBinding.part.setTag(keyword);
     }
 
@@ -1305,7 +1396,8 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         if (isAutoMode() && item.getChangeable() == 2) return false;
         // 获取设备内共享的来源状态表。
         // 冷却结束后允许重新尝试来源。
-        if (isAutoMode() && !SourceHealth.get().available("vod:" + item.getKey())) return false;
+        // 轮询重试时允许重新探测上一轮冷却中的站点。
+        if (isAutoMode() && !mFallback.isRetrying() && !SourceHealth.get().available("vod:" + item.getKey())) return false;
         return item.isSearchable();
     }
 
@@ -1316,7 +1408,10 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         mViewModel.searchContent(sites, keyword, true);
     }
 
+    // 暂停或离开页面后忽略自动搜索的迟到结果。
     private void setSearch(Result result) {
+        // 判断是否允许自动恢复当前播放。
+        if (!mRetry.active()) return;
         List<Vod> items = result.getList();
         items.removeIf(this::mismatch);
         mQuickAdapter.addAll(mQuickAdapter.size(), items);
@@ -1376,14 +1471,20 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         getDetail(item);
     }
 
+    // 用户暂停时停止自动请求并保留继续播放入口。
     private void onPaused() {
+        // 用户暂停时保留恢复入口但不发起请求。
+        mRetry.pause();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (isFullscreen()) showInfo();
         else hideInfo();
         mPlayers.pause();
     }
 
+    // 继续播放时优先恢复等待中的自动重试。
     private void onPlay() {
+        // 用户继续播放时恢复等待中的重试。
+        if (mRetry.resume()) return;
         if (mHistory != null && mPlayers.isEnded()) mPlayers.seekTo(mHistory.getOpening());
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (!mPlayers.isEmpty() && mPlayers.isIdle()) mPlayers.prepare();
@@ -1529,21 +1630,32 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     }
 
     @Override
+    // 回到前台后恢复未被用户暂停的重试。
     protected void onResume() {
         super.onResume();
+        // 页面离开时停止请求且不覆盖用户暂停状态。
+        mRetry.foreground(true);
         setRedirect(false);
     }
 
     @Override
+    // 离开前台时取消排队重试避免后台反复请求。
     protected void onPause() {
         super.onPause();
+        // 页面离开时停止请求且不覆盖用户暂停状态。
+        mRetry.foreground(false);
         if (isRedirect()) mPlayers.stop();
     }
 
     @Override
+    // 后台暂停媒体且不覆盖用户原有播放意图。
     protected void onStop() {
         super.onStop();
-        if (Setting.isBackgroundOff()) onPaused();
+        // 后台暂停播放器但保留用户原有播放意图。
+        if (Setting.isBackgroundOff()) {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            mPlayers.pause();
+        }
         if (Setting.isBackgroundOff()) mClock.stop();
     }
 
@@ -1562,7 +1674,10 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     }
 
     @Override
+    // 页面销毁后拒绝迟到的自动重试。
     protected void onDestroy() {
+        // 页面销毁后拒绝任何迟到的重试请求。
+        mRetry.close();
         saveHistory();
         mClock.release();
         mPlayers.release();

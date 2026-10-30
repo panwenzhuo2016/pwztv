@@ -13,6 +13,7 @@ public final class VideoFallback {
     private final Set<String> visited = new HashSet<>();
     private final int limit;
     private boolean searching;
+    private boolean retrying;
     private String title = "", year = "", episode = "";
     private long position;
     private boolean single;
@@ -99,6 +100,18 @@ public final class VideoFallback {
         return position;
     }
 
+    // 新一轮允许重试且保留影片身份集数及进度。
+    public void retryRound() {
+        visited.clear();
+        searching = false;
+        retrying = true;
+    }
+
+    // 轮询重试时允许重新探测上一轮冷却中的站点。
+    public boolean isRetrying() {
+        return retrying;
+    }
+
     // 播放成功或主动选片后开始新的恢复轮次。
     public void reset() {
         // 播放恢复后清空本轮失败与续播状态。
@@ -111,6 +124,7 @@ public final class VideoFallback {
     public void recovered() {
         visited.clear();
         searching = false;
+        retrying = false;
         episode = "";
         position = 0;
     }
