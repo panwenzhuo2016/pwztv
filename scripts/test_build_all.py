@@ -14,7 +14,17 @@ import zipfile
 import build_all as build
 
 
+STAMP = '20261030_153045'
+
+
 class BuildAllTest(unittest.TestCase):
+    # 固定导出时间便于反查四种安装包和缓存。
+    def setUp(self):
+        clock = patch.object(build, 'datetime')
+        self.clock = clock.start()
+        self.clock.now.return_value.strftime.return_value = STAMP
+        self.addCleanup(clock.stop)
+
 
     # 反查两种构建目录缓存签名和产物互不影响。
     def test_debug_and_release_outputs_remain_separate_in_both_directions(self):
@@ -57,7 +67,7 @@ class BuildAllTest(unittest.TestCase):
             output = root / 'Release'
             output.mkdir()
             for name in build.APK_NAMES.values():
-                (output / name).write_bytes(b'existing Release output')
+                (output / build.export_name(name, STAMP)).write_bytes(b'existing Release output')
             calls = []
 
             # 模拟外部工具并保留实际压缩复制发布流程。
@@ -82,29 +92,27 @@ class BuildAllTest(unittest.TestCase):
             self.assertEqual(4, len([task for task in calls[0] if str(task).startswith(':app:')]))
             self.assertTrue(all('sign' not in call and '-genkeypair' not in call for call in calls))
             for name, source in debug_sources.items():
-                self.assertEqual(source.read_bytes(), (output / 'debug' / name).read_bytes())
-                self.assertEqual(b'existing Release output', (output / name).read_bytes())
-            debug_snapshot = {name: ((output / 'debug' / name).read_bytes(), (output / 'debug' / name).stat().st_mtime_ns)
+                self.assertEqual(source.read_bytes(), (output / 'debug' / build.export_name(name, STAMP)).read_bytes())
+                self.assertEqual(b'existing Release output', (output / build.export_name(name, STAMP)).read_bytes())
+            debug_snapshot = {name: (output / 'debug' / build.export_name(name, STAMP)).read_bytes()
                               for name in build.APK_NAMES.values()}
             options.return_value = release_options
             # 按构建类型验签并导出到独立目录。
             build.main()
             signing.assert_called_once()
             for name in build.APK_NAMES.values():
-                with zipfile.ZipFile(output / name) as archive:
+                with zipfile.ZipFile(output / build.export_name(name, STAMP)) as archive:
                     self.assertEqual(b'Release', archive.read('classes.dex'))
                     self.assertEqual(zipfile.ZIP_DEFLATED, archive.getinfo('assets/libmitv.so').compress_type)
-                self.assertEqual(debug_snapshot[name], ((output / 'debug' / name).read_bytes(),
-                                                       (output / 'debug' / name).stat().st_mtime_ns))
-            release_snapshot = {name: ((output / name).read_bytes(), (output / name).stat().st_mtime_ns)
+                self.assertEqual(debug_snapshot[name], (output / 'debug' / build.export_name(name, STAMP)).read_bytes())
+            release_snapshot = {name: (output / build.export_name(name, STAMP)).read_bytes()
                                 for name in build.APK_NAMES.values()}
             options.return_value = debug_options
             # 按构建类型验签并导出到独立目录。
             build.main()
             for name in build.APK_NAMES.values():
-                self.assertEqual(release_snapshot[name], ((output / name).read_bytes(), (output / name).stat().st_mtime_ns))
-                self.assertEqual(debug_snapshot[name], ((output / 'debug' / name).read_bytes(),
-                                                       (output / 'debug' / name).stat().st_mtime_ns))
+                self.assertEqual(release_snapshot[name], (output / build.export_name(name, STAMP)).read_bytes())
+                self.assertEqual(debug_snapshot[name], (output / 'debug' / build.export_name(name, STAMP)).read_bytes())
             self.assertTrue((root / '.gradle' / 'debug-build-cache').is_dir())
             self.assertTrue((root / '.gradle' / 'release-cache').is_dir())
 
@@ -169,7 +177,7 @@ class BuildAllTest(unittest.TestCase):
                 build.main()
                 self.assertEqual([f':app:assemble{variant}Release'],
                                  [part for part in calls[0] if str(part).startswith(':app:')])
-                with zipfile.ZipFile(output / name) as archive:
+                with zipfile.ZipFile(output / build.export_name(name, STAMP)) as archive:
                     self.assertEqual(b'fresh selected APK', archive.read('classes.dex'))
                 for apk_name in build.APK_NAMES.values():
                     if apk_name != name:
@@ -224,26 +232,36 @@ class BuildAllTest(unittest.TestCase):
             # 按构建类型验签并导出到独立目录。
             build.main()
             self.assertEqual(2, state['signed'])
-            original = {path.name: (path.read_bytes(), path.stat().st_mtime_ns) for path in output.iterdir()}
+            original = {path.name: path.read_bytes() for path in output.iterdir()}
             # 按构建类型验签并导出到独立目录。
             build.main()
             self.assertEqual(2, state['signed'])
             self.assertIn('Reusing verified Release: p.apk', messages.getvalue())
             for name, expected in original.items():
                 actual = output / name
-                self.assertEqual(expected, (actual.read_bytes(), actual.stat().st_mtime_ns))
+                self.assertEqual(expected, actual.read_bytes())
+            self.clock.now.return_value.strftime.return_value = '20261030_153046'
+            # 按构建类型验签并导出到独立目录。
+            build.main()
+            self.assertEqual(2, state['signed'])
+            for name in sources:
+                previous = output / build.export_name(name, STAMP)
+                current = output / build.export_name(name, '20261030_153046')
+                self.assertEqual(previous.read_bytes(), current.read_bytes())
+                self.assertEqual(b'fixture v4', current.with_name(current.name + '.idsig').read_bytes())
+            self.clock.now.return_value.strftime.return_value = STAMP
             with zipfile.ZipFile(sources['p.apk'], 'a') as archive:
                 archive.writestr('new.txt', b'updated source')
             # 按构建类型验签并导出到独立目录。
             build.main()
             self.assertEqual(3, state['signed'])
-            with zipfile.ZipFile(output / 'p.apk') as archive:
+            with zipfile.ZipFile(output / build.export_name('p.apk', STAMP)) as archive:
                 self.assertEqual(b'updated source', archive.read('new.txt'))
-            (output / 'p-tv.apk').write_bytes(b'corrupt release')
+            (root / '.gradle' / 'release-cache' / 'outputs' / 'p-tv.apk').write_bytes(b'corrupt release')
             # 按构建类型验签并导出到独立目录。
             build.main()
             self.assertEqual(4, state['signed'])
-            with zipfile.ZipFile(output / 'p-tv.apk') as archive:
+            with zipfile.ZipFile(output / build.export_name('p-tv.apk', STAMP)) as archive:
                 self.assertEqual(b'fixture', archive.read('classes.dex'))
             with zipfile.ZipFile(sources['p.apk'], 'a') as archive:
                 archive.writestr('v4-disabled.txt', b'fixture without idsig')
@@ -251,8 +269,8 @@ class BuildAllTest(unittest.TestCase):
             # 按构建类型验签并导出到独立目录。
             build.main()
             self.assertEqual(5, state['signed'])
-            self.assertFalse((output / 'p.apk.idsig').exists())
-            with zipfile.ZipFile(output / 'p.apk') as archive:
+            self.assertFalse((output / (build.export_name('p.apk', STAMP) + '.idsig')).exists())
+            with zipfile.ZipFile(output / build.export_name('p.apk', STAMP)) as archive:
                 self.assertEqual(b'fixture without idsig', archive.read('v4-disabled.txt'))
             # 按构建类型验签并导出到独立目录。
             build.main()

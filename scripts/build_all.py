@@ -1,6 +1,7 @@
 """Build Release or Gradle-signed Debug APKs for the selected device and architecture."""
 
 import argparse
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -30,6 +31,12 @@ PYTHON_NATIVE_PREFIXES = (
     "libpython", "libchaquopy", "libcrypto_python", "libssl_python", "libsqlite3_python",
     "libcrypto_chaquopy", "libssl_chaquopy", "libsqlite3_chaquopy",
 )
+
+
+# 为同一次导出的安装包添加统一年月日时分秒。
+def export_name(name, timestamp):
+    path = Path(name)
+    return f"{path.stem}_{timestamp}{path.suffix}"
 
 
 # 解析设备架构构建类型及Python选项。
@@ -163,6 +170,7 @@ def build_apks(expected, build_type):
 def main():
     # 解析设备架构构建类型及Python选项。
     options = build_options()
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     output = OUTPUT / "debug" if options.debug else OUTPUT
     abis = options.abis
     expected = {APK_NAMES[(mode, abi)] for mode in options.modes for abi in abis}
@@ -198,8 +206,11 @@ def main():
     if not options.debug:
         inputs.extend([ROOT / 'scripts' / 'apk_size.py', aligner, keystore])
     # 汇总工具、密钥、脚本和构建选项指纹。
-    cache = ReleaseCache(ROOT / '.gradle' / ('debug-build-cache' if options.debug else 'release-cache'),
-                         output, inputs, {'alias': alias, 'build_type': options.build_type,
+    cache_directory = ROOT / '.gradle' / ('debug-build-cache' if options.debug else 'release-cache')
+    cache_output = cache_directory / 'outputs'
+    cache_output.mkdir(parents=True, exist_ok=True)
+    cache = ReleaseCache(cache_directory,
+                         cache_output, inputs, {'alias': alias, 'build_type': options.build_type,
                                           'with_python': options.with_python})
     with tempfile.TemporaryDirectory(prefix=".staging-", dir=output) as staging:
         staged = Path(staging)
@@ -241,14 +252,27 @@ def main():
             cache.save(name, fingerprint, staged)
             prepared.append(name)
         for name in prepared:
-            (staged / name).replace(output / name)
+            (staged / name).replace(cache_output / name)
             idsig = staged / (name + ".idsig")
             if idsig.exists():
-                idsig.replace(output / idsig.name)
+                idsig.replace(cache_output / idsig.name)
             else:
-                (output / (name + '.idsig')).unlink(missing_ok=True)
+                (cache_output / (name + '.idsig')).unlink(missing_ok=True)
+        for name in sorted(packages):
+            # 为同一次导出的安装包添加统一年月日时分秒。
+            published = export_name(name, timestamp)
+            shutil.copyfile(cache_output / name, staged / published)
+            (staged / published).replace(output / published)
+            signature = cache_output / (name + '.idsig')
+            if signature.is_file():
+                shutil.copyfile(signature, staged / (published + '.idsig'))
+                (staged / (published + '.idsig')).replace(output / (published + '.idsig'))
+            else:
+                (output / (published + '.idsig')).unlink(missing_ok=True)
     print(f"\nSUCCESS: {len(packages)} {options.build_type} APKs are in {output}", flush=True)
     for name in sorted(packages):
+        # 为同一次导出的安装包添加统一年月日时分秒。
+        name = export_name(name, timestamp)
         apk = output / name
         digest = hashlib.sha256(apk.read_bytes()).hexdigest()
         print(f"{name}  {apk.stat().st_size / 1048576:.2f} MiB  SHA256={digest}", flush=True)
